@@ -1,0 +1,17 @@
+node_modules/
+dist/
+app/src/generated/
+app/uploads/*
+!app/uploads/.gitkeep
+
+# секреты — не коммитим
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# логи, ОС-мусор
+*.log
+.DS_Store
+Thumbs.db
