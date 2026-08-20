@@ -12,13 +12,16 @@
 ```
 tg_bot_DedlineBot/
 ├── CLAUDE.md              — правила работы с .env (никогда не читать/писать без разрешения)
-├── CHECKPOINT.md           — снимок интерфейса ДО бэкенда (git-тег checkpoint-ui-only)
 ├── TZ.md                   — исходное ТЗ (источник истины по функционалу)
-├── docker-compose.yml      — Postgres (порт 5433!) + Redis для локальной разработки
+├── DEPLOY.md               — инструкция по разворачиванию на VPS
+├── docker-compose.prod.yml — единственный compose: postgres + redis + migrate + app
+├── deploy/                 — deploy.sh: весь деплой одной командой
 └── app/
+    ├── Dockerfile                 — двухстадийная сборка: build (сборка+миграции) / runtime
     ├── prisma/schema.prisma        — вся схема БД
     ├── .env / .env.example         — секреты (не коммитятся) / шаблон
     └── src/
+        ├── prod.ts                — точка входа в проде (polling + REST + воркеры)
         ├── types/event.ts          — ЕДИНЫЙ источник истины по доменным типам
         ├── utils/occurrences.ts    — движок: расписание → список UTC-моментов отправки
         ├── utils/datePart.ts       — DatePart <-> Date для хранения (без часового пояса)
@@ -37,16 +40,35 @@ tg_bot_DedlineBot/
 
 ## Как запустить локально
 
+Отдельного дев-compose в репозитории нет (проект приведён к прод-состоянию).
+Postgres и Redis для локальной работы нужно поднять самому — любым способом,
+главное указать реальные адреса в `app/.env`. Разово это делается так:
+
 ```bash
-docker compose up -d          # поднимет Postgres (порт 5433, не 5432 — на машине занят нативным сервисом) и Redis
-cd app
-npx prisma migrate dev        # только если схема менялась
-npm run bot                   # бот + воркер напоминаний в одном процессе (nodemon+tsx)
-# отдельно, если нужен REST API:
-npx tsx src/app.ts
+docker run -d --name dedlinebot-pg -p 5433:5432 -e POSTGRES_USER=dedlinebot -e POSTGRES_PASSWORD=dedlinebot -e POSTGRES_DB=dedlinebot postgres:16-alpine
 ```
 
-`.env` должен содержать `BOT_TOKEN`, `DATABASE_URL` (порт 5433!), `REDIS_URL`, `DEFAULT_TIMEZONE`, `PORT` — шаблон в `app/.env.example`.
+```bash
+docker run -d --name dedlinebot-redis -p 6379:6379 redis:7-alpine
+```
+
+Порт 5433, а не 5432 — на этой машине 5432 занят нативным Postgres-сервисом Windows.
+Дальше:
+
+```bash
+cd app && npx prisma migrate dev && npm run bot
+```
+
+И локально (`src/bot/index.ts`), и в проде (`src/prod.ts`) бот работает на long
+polling — сам ходит за апдейтами, домен и HTTPS не нужны. Разница только в
+обвязке: в проде добавлены Express с REST API и `/healthz`. Общая часть —
+фабрика `bot/createBot.ts`, так что хендлеры не дублируются.
+
+**На одном токене может работать только один процесс.** Если прод запущен,
+локальный `npm run bot` с тем же `BOT_TOKEN` начнёт выхватывать у него апдейты
+(в логах — `409 Conflict`). Для разработки нужен отдельный тестовый бот.
+
+`app/.env` должен содержать `BOT_TOKEN`, `DATABASE_URL` (порт 5433!), `REDIS_URL`, `PORT` — шаблон в `app/.env.example`.
 
 ## Слой bot/ (Telegram)
 
@@ -90,9 +112,8 @@ CANCELLED. Резюм/правка = пересчитать заново, взя
 
 ## Что НЕ реализовано
 
-- «Done» (досрочно погасить текущее окно напоминаний, событие остаётся активным).
-- Продакшн-деплой (webhook вместо long polling, публичный домен).
 - Финальное название бота не выбрано.
+- CI/CD (сейчас деплой ручной: `git pull` + `deploy/deploy.sh` на сервере).
 
 Подробности и история решений — в памяти агента (папка `memory/dedlinebot-*.md`
 в профиле Claude Code), в частности `dedlinebot-db-schema.md` и

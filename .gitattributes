@@ -1,0 +1,8 @@
+# Проект разрабатывается на Windows, а разворачивается на Linux. Без этого
+# файла git отдаёт на сервер файлы с CRLF, и bash спотыкается о `\r`:
+# `deploy/deploy.sh: line 2: $'\r': command not found`.
+* text=auto eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf

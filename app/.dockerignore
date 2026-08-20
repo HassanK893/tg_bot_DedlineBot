@@ -1,7 +1,10 @@
- node_modules
- dist
- *.tsbuildinfo
- .env
- .env.*
- uploads
- .git
+# Ведущие пробелы в этом файле недопустимы — с ними Docker не распознаёт
+# паттерн и всё равно тащит node_modules в контекст сборки.
+node_modules
+dist
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+src/generated
+.git

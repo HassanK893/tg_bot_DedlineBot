@@ -27,19 +27,47 @@ services:
       retries: 10
     networks: [internal]
 
+  # Одноразовый сервис: прогоняет миграции и завершается. Собирается из
+  # «толстой» стадии build — только там есть Prisma CLI. Приложение стартует
+  # лишь после того, как этот контейнер вышел с кодом 0.
+  migrate:
+    build:
+      context: ./app
+      target: build
+    restart: "no"
+    command: npx prisma migrate deploy
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
   app:
-    build: ./app
+    build:
+      context: ./app
+      target: runtime
     restart: unless-stopped
     env_file:
       - .env
-    # Только localhost — наружу торчит Nginx (TLS-терминация), не сам контейнер.
+    # Боту входящие соединения не нужны (long polling), порт нужен только чтобы
+    # можно было руками проверить /healthz и REST API с самого сервера.
+    # Префикс 127.0.0.1 — доступ только с localhost, из интернета порта нет.
     ports:
       - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks: [internal]
 
 volumes:

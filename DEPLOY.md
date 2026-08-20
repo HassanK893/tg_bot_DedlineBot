@@ -1,85 +1,160 @@
-# Деплой DedlineBot на VPS (skanix.ru)
+# Разворачивание DedlineBot на VPS
 
-Я не могу подключиться к твоему VPS напрямую — весь раздел «На VPS» ты выполняешь
-сам через SSH. Каждый блок — это то, что нужно скопировать целиком и вставить в
-терминал.
+Бот работает на **long polling**: он сам ходит в Telegram за апдейтами, а
+входящие соединения ему не нужны. Поэтому проекту **не нужны ни домен, ни
+TLS-сертификат, ни Nginx**. Приложение целиком живёт в контейнерах и наружу
+никаких портов не открывает.
 
-Домен `skanix.ru` уже должен указывать A-записью на IP этого VPS — без этого
-шаг с сертификатом (certbot) не пройдёт.
+---
 
-## Что это разворачивает
+## Что нужно до начала
 
-Один Docker-контейнер с ботом (webhook-режим вместо long polling) + REST API +
-воркеры напоминаний, плюс Postgres и Redis в соседних контейнерах. Снаружи —
-Nginx на самом VPS с TLS-сертификатом от Let's Encrypt, проксирующий
-`https://skanix.ru` на контейнер приложения.
+1. VPS на Ubuntu/Debian, доступ по SSH под root или через `sudo`.
+2. **BOT_TOKEN** от @BotFather — скрипт спросит его один раз.
+3. Исходящий интернет с сервера (к `api.telegram.org`). Больше ничего.
 
-## 1. Перенести код на VPS (с твоей Windows-машины, Git Bash)
+Docker ставить заранее не нужно — скрипт поставит сам, если его нет.
 
-Из корня репозитория (`tg_bot_DedlineBot`):
+> **Один токен — один запущенный бот.** Пока прод работает, локальный
+> `npm run bot` с тем же `BOT_TOKEN` запускать нельзя: два процесса начнут
+> выхватывать апдейты друг у друга. Для разработки заведите у @BotFather
+> отдельного тестового бота.
 
-```bash
-tar --exclude='app/node_modules' --exclude='.git' --exclude='app/dist' --exclude='app/src/generated' -czf dedlinebot.tar.gz .
-```
+---
 
-```bash
-scp dedlinebot.tar.gz root@skanix.ru:/root/
-```
-
-(Если логин на VPS не `root` — подставь своего пользователя. Пароль/ключ спросит сам scp — как обычно логинишься по SSH.)
-
-## 2. На VPS — распаковать и запустить
-
-Подключись по SSH:
+## Шаг 1. Положить код на сервер
 
 ```bash
-ssh root@skanix.ru
+sudo git clone <URL_вашего_репозитория> /opt/dedlinebot
 ```
 
-Дальше — всё одним блоком:
+---
+
+## Шаг 2. Запустить деплой
 
 ```bash
-mkdir -p /opt/dedlinebot
-tar -xzf /root/dedlinebot.tar.gz -C /opt/dedlinebot
-cd /opt/dedlinebot
-chmod +x deploy/deploy.sh
-bash deploy/deploy.sh
+cd /opt/dedlinebot && sudo bash deploy/deploy.sh
 ```
 
-Скрипт сам:
-- поставит Docker, Nginx, certbot, если их ещё нет;
-- один раз спросит **BOT_TOKEN** от @BotFather (единственное, что нужно ввести руками) и сгенерирует остальные пароли/секреты сам;
-- поднимет Postgres, Redis и контейнер приложения (внутри контейнера сам применит миграции БД);
-- настроит Nginx и выпустит SSL-сертификат.
+Скрипт:
 
-В конце выведет две команды для проверки — выполни их там же:
+1. ставит Docker (если его нет);
+2. создаёт `/opt/dedlinebot/.env` — спросит только `BOT_TOKEN`, пароль базы
+   сгенерирует сам;
+3. собирает и поднимает контейнеры: Postgres, Redis, миграции, приложение.
+
+---
+
+## Шаг 3. Проверить
 
 ```bash
-curl -s https://skanix.ru/healthz
-docker compose -f docker-compose.prod.yml logs -f app
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml logs -f app
 ```
 
-`healthz` должен ответить `ok`. В логах ищи строку `Webhook установлен: ...` и
-`prod-сервер слушает 127.0.0.1:3000` — если оба есть, бот должен отвечать в
-Telegram. `Ctrl+C` выходит из просмотра логов, контейнеры продолжают работать.
+В логах должно быть:
 
-## 3. Обновление кода после правок
+```
+HTTP-сервер слушает 0.0.0.0:3000 (наружу не опубликован)
+Бот запущен (polling): @ваш_бот
+```
 
-Каждый раз, когда я меняю код локально и ты хочешь выкатить это на прод —
-повторяешь шаг 1 (пересобрать архив, `scp`), потом на VPS:
+После этого напишите боту `/start` в Telegram.
+
+Состояние контейнеров:
 
 ```bash
-tar -xzf /root/dedlinebot.tar.gz -C /opt/dedlinebot
-cd /opt/dedlinebot
-bash deploy/deploy.sh
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml ps
 ```
 
-`.env` на сервере уже существует — скрипт его не тронет, просто пересоберёт и
-перезапустит контейнер приложения с новым кодом.
+У `app` должно быть `Up (healthy)`, у `migrate` — `Exited (0)`.
+
+---
+
+## Обновление после изменений в коде
+
+```bash
+cd /opt/dedlinebot && sudo git pull && sudo bash deploy/deploy.sh
+```
+
+Повторный запуск идемпотентен: `.env` не трогается, пересобираются контейнеры
+и накатываются новые миграции.
+
+---
+
+## Полезные команды
+
+Перезапустить только приложение:
+
+```bash
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml restart app
+```
+
+Логи миграций:
+
+```bash
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml logs migrate
+```
+
+Бэкап базы:
+
+```bash
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U dedlinebot dedlinebot > ~/dedlinebot-$(date +%F).sql
+```
+
+Проверить HTTP-слой с самого сервера (наружу он не доступен):
+
+```bash
+curl -s http://127.0.0.1:3000/healthz
+```
+
+---
 
 ## Если что-то пошло не так
 
-- **`curl .../healthz` не отвечает** — `docker compose -f docker-compose.prod.yml ps` (все три сервиса должны быть `Up`/`healthy`), затем `docker compose -f docker-compose.prod.yml logs app` за деталями ошибки.
-- **certbot не смог выпустить сертификат** — почти всегда значит, что DNS `skanix.ru` ещё не указывает на этот VPS (проверить: `dig +short skanix.ru` должен вернуть IP этого сервера) или порт 80 закрыт файрволом (`ufw status`, при необходимости `ufw allow 80,443/tcp`).
-- **Бот не отвечает в Telegram, но `/healthz` работает** — проверь, что вебхук реально зарегистрирован: `curl "https://api.telegram.org/bot<ТВОЙ_ТОКЕН>/getWebhookInfo"` (выполнять на самом VPS или у себя — токен подставляешь сам, мне его показывать не нужно). Поле `url` должно совпадать с `https://skanix.ru/telegram/webhook/<секрет>`, а `last_error_message` — быть пустым.
-- **Хочешь откатиться на локальный long polling** — там ничего не менялось, `npm run bot` по-прежнему работает как раньше, эти два режима независимы (webhook только в `src/prod.ts`).
+### Бот не отвечает, в логах `409 Conflict: terminated by other getUpdates request`
+
+Значит, с этим же токеном где-то запущен ещё один экземпляр бота — скорее
+всего локальный `npm run bot`. Остановите его. Для разработки нужен отдельный
+токен.
+
+### Приложение не стартует
+
+```bash
+cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml logs migrate
+```
+
+Контейнер `app` намеренно не запускается, пока `migrate` не отработает
+успешно, — чтобы приложение не работало с несовпадающей схемой БД.
+
+### Проверить, что Telegram видит именно polling
+
+Команда содержит токен, поэтому выполняйте её сами и никуда вывод не копируйте:
+
+```bash
+source /opt/dedlinebot/.env && curl -s "https://api.telegram.org/bot$BOT_TOKEN/getWebhookInfo"
+```
+
+Поле `url` должно быть пустым (`""`). Если там адрес — на боте висит старый
+webhook; приложение снимает его при старте само, достаточно перезапустить `app`.
+
+---
+
+## Как это устроено
+
+```
+                    исходящее соединение
+контейнер app  ─────────────────────────────►  api.telegram.org
+      │
+      ├── Postgres (внутренняя сеть internal)
+      └── Redis    (внутренняя сеть internal)
+
+входящих соединений нет вообще — портов наружу не открыто
+```
+
+| Файл | Назначение |
+|---|---|
+| `docker-compose.prod.yml` | стек: postgres, redis, migrate, app |
+| `app/Dockerfile` | двухстадийная сборка: `build` (сборка + миграции), `runtime` (то, что крутится) |
+| `deploy/deploy.sh` | весь деплой одной командой, идемпотентен |
+| `.env.production.example` | шаблон переменных окружения (реальный `.env` в git не попадает) |
+| `app/src/prod.ts` | точка входа в проде: бот на polling'е + REST API + фоновые воркеры |
