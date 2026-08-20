@@ -153,6 +153,41 @@ curl -s http://127.0.0.1:3000/healthz
 
 ---
 
+## IPv6 в Docker (нужен не везде)
+
+На некоторых хостингах `api.telegram.org` и `registry.npmjs.org` отвечают
+**только по IPv6**. Сам сервер при этом работает нормально, а контейнеры —
+нет: docker-сети по умолчанию только IPv4, и соединение молча висит до таймаута.
+Симптомы: `npm ci` падает с `ETIMEDOUT`, бот не может подключиться к Telegram.
+
+Проверить:
+
+```bash
+sudo docker run --rm node:22-alpine node -e "require('https').get('https://api.telegram.org/bot000/getMe',r=>{console.log('OK',r.statusCode)}).on('error',e=>console.log('НЕТ СВЯЗИ:',e.message))"
+```
+
+Если `НЕТ СВЯЗИ`, а с самого сервера `curl https://api.telegram.org/` отвечает —
+включите IPv6 у демона:
+
+```bash
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null; echo '{"ipv6": true, "fixed-cidr-v6": "fd00:d0c::/64", "ip6tables": true}' | sudo tee /etc/docker/daemon.json
+```
+
+```bash
+sudo systemctl restart docker
+```
+
+`fd00:` — приватный диапазон, аналог `192.168.x.x` для IPv6. Контейнеры получают
+выход наружу, но снаружи остаются недоступны.
+
+Перезапуск демона на минуту роняет **все** контейнеры на сервере.
+
+Откат:
+
+```bash
+sudo mv /etc/docker/daemon.json.bak /etc/docker/daemon.json && sudo systemctl restart docker
+```
+
 ## Если что-то пошло не так
 
 ### Бот не отвечает, в логах `409 Conflict: terminated by other getUpdates request`
