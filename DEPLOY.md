@@ -70,6 +70,50 @@ cd /opt/dedlinebot && docker compose -f docker-compose.prod.yml ps
 
 ---
 
+## Сборка образов не на сервере
+
+Если с сервера не достучаться до npm-реестра (`npm ci` виснет на `ETIMEDOUT`),
+собирать образы на месте не получится. Тогда они собираются на другой машине и
+переносятся готовыми.
+
+**На машине, где сборка работает:**
+
+```bash
+docker build --platform linux/amd64 --provenance=false -t dedlinebot-migrate:latest --target build ./app
+```
+
+```bash
+docker build --platform linux/amd64 --provenance=false -t dedlinebot-app:latest --target runtime ./app
+```
+
+```bash
+docker save dedlinebot-app:latest dedlinebot-migrate:latest | gzip -1 > dedlinebot-images.tar.gz
+```
+
+Передать на сервер (~295 МБ):
+
+```bash
+scp dedlinebot-images.tar.gz ПОЛЬЗОВАТЕЛЬ@СЕРВЕР:/tmp/
+```
+
+**На сервере:**
+
+```bash
+sudo docker load -i /tmp/dedlinebot-images.tar.gz
+```
+
+```bash
+cd /opt/dedlinebot && sudo bash deploy/deploy.sh --no-build
+```
+
+Флаг `--no-build` берёт загруженные образы вместо сборки на месте.
+
+Архив после загрузки можно удалить:
+
+```bash
+rm /tmp/dedlinebot-images.tar.gz
+```
+
 ## Обновление после изменений в коде
 
 ```bash

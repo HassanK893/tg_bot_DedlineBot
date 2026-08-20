@@ -31,6 +31,9 @@ services:
   # «толстой» стадии build — только там есть Prisma CLI. Приложение стартует
   # лишь после того, как этот контейнер вышел с кодом 0.
   migrate:
+    # Явное имя образа нужно, чтобы стек можно было поднять из заранее
+    # собранного образа (`--no-build`), а не только собирая на месте.
+    image: dedlinebot-migrate:latest
     build:
       context: ./app
       target: build
@@ -44,6 +47,7 @@ services:
     networks: [internal]
 
   app:
+    image: dedlinebot-app:latest
     build:
       context: ./app
       target: runtime

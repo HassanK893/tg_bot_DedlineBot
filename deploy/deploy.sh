@@ -10,10 +10,16 @@
 #
 # Запускать от root (или через sudo) из корня репозитория на самом VPS:
 #   cd /opt/dedlinebot && sudo bash deploy/deploy.sh
+#
+# Флаг --no-build: не собирать образы на сервере, взять уже загруженные через
+# `docker load`. Нужен, когда с сервера не достучаться до npm-реестра (см.
+# раздел «Сборка образов не на сервере» в DEPLOY.md).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$REPO_DIR/.env"
+BUILD=1
+if [ "${1:-}" = "--no-build" ]; then BUILD=0; fi
 
 echo "==> Каталог деплоя: $REPO_DIR"
 
@@ -51,9 +57,20 @@ else
 fi
 
 # --- контейнеры -----------------------------------------------------------------
-echo "==> Собираю и запускаю контейнеры..."
 cd "$REPO_DIR"
-docker compose -f docker-compose.prod.yml up -d --build
+if [ "$BUILD" = "1" ]; then
+  echo "==> Собираю и запускаю контейнеры..."
+  docker compose -f docker-compose.prod.yml up -d --build
+else
+  echo "==> Запускаю контейнеры из готовых образов (без сборки)..."
+  for img in dedlinebot-app:latest dedlinebot-migrate:latest; do
+    if ! docker image inspect "$img" >/dev/null 2>&1; then
+      echo "Ошибка: образ $img не найден. Сначала загрузите его: docker load -i <файл>" >&2
+      exit 1
+    fi
+  done
+  docker compose -f docker-compose.prod.yml up -d --no-build
+fi
 
 # После пересборки старые слои остаются висеть безымянными и со временем
 # съедают диск VPS — подчищаем.
