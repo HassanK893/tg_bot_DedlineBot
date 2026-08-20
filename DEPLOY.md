@@ -170,15 +170,21 @@ sudo docker run --rm node:22-alpine node -e "require('https').get('https://api.t
 включите IPv6 у демона:
 
 ```bash
-sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null; echo '{"ipv6": true, "fixed-cidr-v6": "fd00:d0c::/64", "ip6tables": true}' | sudo tee /etc/docker/daemon.json
+sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak 2>/dev/null; echo '{"ipv6": true, "fixed-cidr-v6": "fd00:d0c::/64", "ip6tables": true, "mtu": 1400}' | sudo tee /etc/docker/daemon.json
 ```
 
 ```bash
 sudo systemctl restart docker
 ```
 
-`fd00:` — приватный диапазон, аналог `192.168.x.x` для IPv6. Контейнеры получают
-выход наружу, но снаружи остаются недоступны.
+Что здесь что:
+
+- `fd00:` — приватный диапазон, аналог `192.168.x.x` для IPv6. Контейнеры
+  получают выход наружу, но снаружи остаются недоступны.
+- `mtu: 1400` — не менее важно, чем сам IPv6. В IPv6 маршрутизаторы не дробят
+  крупные пакеты, а просят отправителя уменьшить размер; через NAT эти просьбы
+  теряются. Без этой настройки `ping` из контейнера проходит, а любая
+  сколько-нибудь крупная загрузка виснет насмерть.
 
 Перезапуск демона на минуту роняет **все** контейнеры на сервере.
 
