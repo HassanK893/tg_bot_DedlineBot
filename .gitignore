@@ -8,10 +8,12 @@ app/uploads/*
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 
-# логи, ОС-мусор
+# логи, ОС-мусор, временные архивы деплоя
 *.log
 .DS_Store
 Thumbs.db
+dedlinebot.tar.gz

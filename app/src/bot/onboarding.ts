@@ -1,0 +1,65 @@
+import { Context } from "grammy";
+import type { Conversation } from "@grammyjs/conversations";
+import { answerStaleCallback, tryDelete } from "./eventSteps.js";
+import { buildTimezonePicker, TIMEZONE_OPTIONS } from "./timezone.js";
+import { mainMenuKeyboard, mainMenuText, markMainMenuMessage, staleOldMainMenu } from "./mainMenu.js";
+import * as userService from "../modules/user/user.service.js";
+
+type MyConversation = Conversation<Context>;
+
+/**
+ * Выбор часового пояса — единственный обязательный шаг онбординга. Вызывается
+ * и на первом /start (если ещё не выбран), и повторно из настроек, поэтому
+ * всегда шлёт новое сообщение (а не редактирует существующее): у /start нет
+ * своего сообщения бота, которое можно было бы редактировать.
+ */
+export async function selectTimezoneConversation(conversation: MyConversation, ctx: Context) {
+  const rawTelegramId = ctx.from?.id;
+  if (rawTelegramId === undefined) return;
+  const telegramId: number = rawTelegramId;
+
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery();
+
+  const rawChatId = ctx.chat?.id;
+  if (rawChatId !== undefined) await staleOldMainMenu(ctx, rawChatId);
+
+  const sent = await ctx.reply(
+    "👋 Прежде чем начать — выберите свой часовой пояс. Он нужен, чтобы напоминания приходили в правильное время.",
+    { reply_markup: buildTimezonePicker() },
+  );
+  const chatId = sent.chat.id;
+  const messageId = sent.message_id;
+
+  while (true) {
+    const next = await conversation.wait();
+    const data = next.callbackQuery?.data;
+    if (!data) {
+      if (next.message) await tryDelete(next);
+      continue;
+    }
+    const match = data.match(/^tz:pick:(\d+)$/);
+    if (!match) {
+      await answerStaleCallback(next);
+      continue;
+    }
+    const index = Number(match[1]);
+    const option = TIMEZONE_OPTIONS[index];
+    if (!option) {
+      await answerStaleCallback(next);
+      continue;
+    }
+
+    await next.answerCallbackQuery();
+    await conversation.external(() => userService.setTimezone(telegramId, option.zone));
+
+    const name = ctx.from?.first_name ?? "друг";
+    await ctx.api.editMessageText(
+      chatId,
+      messageId,
+      `Часовой пояс сохранён: ${option.label}.\n\n${mainMenuText(name)}`,
+      { reply_markup: mainMenuKeyboard() },
+    );
+    markMainMenuMessage(chatId, messageId);
+    return;
+  }
+}

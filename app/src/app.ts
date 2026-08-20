@@ -1,3 +1,4 @@
+import "dotenv/config";
 import Server from "./server.js";
 import serverSettingsEnv from "./config/env.js";
 function run() {

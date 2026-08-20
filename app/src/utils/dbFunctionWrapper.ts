@@ -11,7 +11,7 @@ const dbFunctionWrapper =
         switch (err.code) {
           case "P2002":
             throw new BadRequest(
-              `скан с таким Primary key или уникальным полем уже существует`,
+              `запись с таким уникальным полем уже существует`,
             );
           case "P2003":
             throw new NotFound(`пользователь не найден`);

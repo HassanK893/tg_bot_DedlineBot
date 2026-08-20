@@ -17,6 +17,7 @@ const validateBody =
         message: "ошибка с телом запроса",
         name: "BadRequest",
       });
+      return;
     }
     req.body = result.data;
     next();

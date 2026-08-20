@@ -14,3 +14,130 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Разовое (свободный диапазон дат) vs ежемесячное (даты внутри одного
+/// зафиксированного месяца) — определяет только механику визарда при выборе
+/// startDate/endDate, см. app/src/bot/wizard.ts.
+enum EventKind {
+  ONCE
+  MONTHLY
+}
+
+enum ScheduleType {
+  CUSTOM
+  INTERVAL
+}
+
+enum IntervalUnit {
+  HOURS
+  DAYS
+  WEEKS
+  MONTHS
+}
+
+enum EventState {
+  ACTIVE
+  PAUSED
+}
+
+enum ReminderStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+model User {
+  id         String   @id @default(uuid())
+  /// Telegram user id — единственный способ идентификации, отдельного логина нет.
+  telegramId BigInt   @unique
+  firstName  String
+  /// IANA-зона (например "Europe/Moscow"). Пусто до прохождения онбординга.
+  timezone   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events Event[]
+}
+
+model Event {
+  id           String       @id @default(uuid())
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  description  String
+  reminderText String
+  photoFileId  String?
+  kind         EventKind
+  /// Календарная дата (без времени) — те же year/month/day, что в DatePart визарда.
+  startDate    DateTime     @db.Date
+  endDate      DateTime     @db.Date
+  scheduleType ScheduleType
+  state        EventState   @default(ACTIVE)
+  /// Только для kind=MONTHLY: true после нажатия Done — оставшиеся в этом
+  /// цикле напоминания сняты, событие ждёт следующего месяца (или Restore).
+  doneThisCycle Boolean     @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  customDates      EventCustomDate[]
+  intervalSchedule EventIntervalSchedule?
+  reminders        Reminder[]
+
+  @@index([userId])
+}
+
+/// Одна запись = одна дата из режима «Свои даты» (CustomDateEntry.date).
+model EventCustomDate {
+  id      String   @id @default(uuid())
+  eventId String
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  date    DateTime @db.Date
+
+  times EventCustomTime[]
+
+  @@index([eventId])
+}
+
+/// Одно время из CustomDateEntry.times — на дату их может быть несколько.
+model EventCustomTime {
+  id           String          @id @default(uuid())
+  customDateId String
+  customDate   EventCustomDate @relation(fields: [customDateId], references: [id], onDelete: Cascade)
+  /// "ЧЧ:ММ"
+  time         String
+
+  @@index([customDateId])
+}
+
+/// 1-к-1 с Event при scheduleType=INTERVAL — прямое отражение IntervalSchedule.
+model EventIntervalSchedule {
+  id      String       @id @default(uuid())
+  eventId String       @unique
+  event   Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  unit    IntervalUnit
+  every   Int
+  /// "ЧЧ:ММ" — для всех единиц, кроме HOURS.
+  time       String?
+  /// 0=Пн..6=Вс — только для WEEKS.
+  weekday    Int?
+  /// 1-31 — только для MONTHS.
+  dayOfMonth Int?
+}
+
+/// Один вычисленный момент отправки — источник истины для BullMQ-очереди.
+/// jobId хранит id соответствующей delayed-задачи в Redis, чтобы её можно
+/// было снять при паузе/удалении/редактировании события.
+model Reminder {
+  id        String         @id @default(uuid())
+  eventId   String
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  firesAt   DateTime
+  status    ReminderStatus @default(PENDING)
+  jobId     String?
+  createdAt DateTime       @default(now())
+  sentAt    DateTime?
+
+  @@index([eventId, status])
+  @@index([firesAt])
+}
+
