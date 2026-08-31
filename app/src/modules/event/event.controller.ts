@@ -2,21 +2,12 @@ import { Request, Response } from "express";
 import type { CompleteEventDraft } from "../../types/event.js";
 import { BadRequest } from "../../middleware/generalMiddleware/errorMessage.js";
 import { CreatedSuccess, NoContentSuccess, OkSuccess } from "../../middleware/generalMiddleware/succesMessege.js";
-import { getParam } from "../../utils/params.js";
+import { requireEventId, requireTelegramId } from "../../utils/params.js";
 import * as userService from "../user/user.service.js";
 import * as eventService from "./event.service.js";
 
 async function resolveUser(req: Request) {
-  const raw = getParam(req.params, "telegramId");
-  const telegramId = Number(raw);
-  if (!raw || !Number.isFinite(telegramId)) throw new BadRequest("telegramId обязателен");
-  return userService.getByTelegramId(telegramId);
-}
-
-function requireEventId(req: Request): string {
-  const eventId = getParam(req.params, "eventId");
-  if (!eventId) throw new BadRequest("eventId обязателен");
-  return eventId;
+  return userService.getByTelegramId(requireTelegramId(req));
 }
 
 function requireTimezone(timezone: string | null): string {

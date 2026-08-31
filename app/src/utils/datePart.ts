@@ -15,6 +15,20 @@ export function utcDateToDatePart(date: Date): DatePart {
 }
 
 /**
+ * Календарная дата одним числом — для сравнения и сортировки дат без времени.
+ * Общая точка для UI-календаря (bot/calendar.ts) и логики визарда
+ * (bot/eventSteps.ts, bot/editWizard.ts).
+ */
+export function dateSortKey(d: DatePart): number {
+  return Date.UTC(d.year, d.month, d.day);
+}
+
+/** Сколько дней в месяце: «день 0» следующего месяца — это последний день текущего. */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
+
+/**
  * Сдвигает дату на N месяцев, сохраняя число месяца — если в целевом месяце
  * столько дней нет (например, 31 в апреле), берётся последний день месяца.
  * Используется для помесячного rollover ежемесячных событий.
@@ -24,6 +38,5 @@ export function shiftMonthClamped(d: DatePart, months: number): DatePart {
   const base = new Date(Date.UTC(d.year, d.month + months, 1));
   const year = base.getUTCFullYear();
   const month = base.getUTCMonth();
-  const daysInTargetMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return { year, month, day: Math.min(desiredDay, daysInTargetMonth) };
+  return { year, month, day: Math.min(desiredDay, daysInMonth(year, month)) };
 }

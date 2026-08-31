@@ -10,8 +10,10 @@ import {
   buildYearMonthPicker,
   formatDate,
   monthTitle,
+  WEEKDAYS,
   type CalendarRange,
 } from "./calendar.js";
+import { dateSortKey } from "../utils/datePart.js";
 import type {
   CustomDateEntry,
   DatePart,
@@ -31,8 +33,6 @@ import { escapeHtml } from "../utils/html.js";
  */
 
 export type MyConversation = Conversation<Context>;
-
-export const WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 /**
  * Какие единицы интервала вообще имеют смысл при выбранном промежутке
@@ -69,10 +69,6 @@ export function parseTime(raw: string): string | null {
   return `${hours.padStart(2, "0")}:${minutes}`;
 }
 
-
-export function dateSortKey(d: DatePart): number {
-  return Date.UTC(d.year, d.month, d.day);
-}
 
 /**
  * Все экраны визарда отправляются с parse_mode: "HTML" — единая точка,
@@ -125,6 +121,17 @@ export async function answerStaleCallback(ctx: Context): Promise<void> {
   }
 }
 
+/**
+ * Единая реакция на апдейт, которого текущий шаг не ждал: сообщение (не тот
+ * тип ответа, стикер, команда) убираем из чата, чтобы оно не копилось и не
+ * попало в поле как значение; чужой или устаревший callback объясняем алертом.
+ * В обоих случаях шаг просто продолжает ждать нужный апдейт.
+ */
+export async function skipUnexpected(ctx: Context): Promise<void> {
+  if (ctx.message) await tryDelete(ctx);
+  else await answerStaleCallback(ctx);
+}
+
 type TextFieldResult = { kind: "text"; value: string } | { kind: "skip" } | { kind: "cancel" };
 
 export async function waitTextField(
@@ -147,14 +154,9 @@ export async function waitTextField(
       await tryDelete(next);
       return { kind: "text", value: text };
     }
-    if (next.message) {
-      // прислали не текст (фото, стикер и т.п.) или команду вроде /test —
-      // этот шаг такое не ждёт, убираем, чтобы не копилось в чате и не
-      // сохранилось как ответ (иначе можно случайно назвать событие "/test")
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    // сюда попадает и команда вроде /test — она отсеяна проверкой выше, иначе
+    // событие можно было бы случайно назвать "/test"
+    await skipUnexpected(next);
   }
 }
 
@@ -177,13 +179,7 @@ export async function waitPhotoField(conversation: MyConversation): Promise<Phot
       await tryDelete(next);
       return { kind: "photo", fileId: photo.file_id };
     }
-    if (next.message) {
-      // прислали не фото (текст, стикер и т.п.) — этот шаг такое не ждёт,
-      // убираем, чтобы не копилось в чате
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -201,11 +197,7 @@ export async function waitChoice(conversation: MyConversation, options: string[]
       await next.answerCallbackQuery();
       return { kind: "choice", value: data };
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -408,11 +400,7 @@ export async function pickManualTime(
       hint = `Не понял время «${escapeHtml(text)}». Формат — ЧЧ:ММ, например 09:05, 18.30 или 1845.`;
       continue;
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -452,11 +440,7 @@ export async function waitTimePick(
         return slot;
       }
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -551,11 +535,7 @@ async function waitCustomDatePick(
         };
       }
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -663,15 +643,20 @@ async function waitIntervalUnitPick(conversation: MyConversation, units: Interva
       await next.answerCallbackQuery();
       return { kind: "unit", unit: "months" };
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
-async function waitNumberPick(conversation: MyConversation): Promise<number | "cancel"> {
+const NUMBER_PICK = /^int:num:(\d+)$/;
+const WEEKDAY_PICK = /^wd:pick:(\d)$/;
+
+/**
+ * Ждёт тап по кнопке, callback_data которой подходит под pattern с одной
+ * захватывающей группой-числом. Один цикл на «раз в N часов/дней/недель/
+ * месяцев» (buildNumberPicker) и на выбор дня недели (buildWeekdayPicker) —
+ * отличались они только шаблоном.
+ */
+async function waitNumericPick(conversation: MyConversation, pattern: RegExp): Promise<number | "cancel"> {
   while (true) {
     const next = await conversation.wait();
     const data = next.callbackQuery?.data;
@@ -681,41 +666,13 @@ async function waitNumberPick(conversation: MyConversation): Promise<number | "c
       return "cancel";
     }
     if (data) {
-      const match = data.match(/^int:num:(\d+)$/);
+      const match = data.match(pattern);
       if (match) {
         await next.answerCallbackQuery();
         return Number(match[1]);
       }
     }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
-  }
-}
-
-async function waitWeekdayPick(conversation: MyConversation): Promise<number | "cancel"> {
-  while (true) {
-    const next = await conversation.wait();
-    const data = next.callbackQuery?.data;
-
-    if (isCancel(data)) {
-      await next.answerCallbackQuery();
-      return "cancel";
-    }
-    if (data) {
-      const match = data.match(/^wd:pick:(\d)$/);
-      if (match) {
-        await next.answerCallbackQuery();
-        return Number(match[1]);
-      }
-    }
-    if (next.message) {
-      await tryDelete(next);
-      continue;
-    }
-    await answerStaleCallback(next);
+    await skipUnexpected(next);
   }
 }
 
@@ -762,7 +719,7 @@ export async function runIntervalFlow(
       formText("Раз во сколько часов присылать напоминание?"),
       buildNumberPicker(1, 24),
     );
-    const n = await waitNumberPick(conversation);
+    const n = await waitNumericPick(conversation, NUMBER_PICK);
     if (n === "cancel") return "cancel";
     draft.intervalSchedule = { unit: "hours", every: n };
     return "done";
@@ -776,7 +733,7 @@ export async function runIntervalFlow(
       formText("Раз во сколько дней присылать напоминание?"),
       buildNumberPicker(1, 7),
     );
-    const days = await waitNumberPick(conversation);
+    const days = await waitNumericPick(conversation, NUMBER_PICK);
     if (days === "cancel") return "cancel";
 
     const timeRes = await pickSingleTime(conversation, ctx, chatId, messageId, formText, "В какое время присылать напоминание?");
@@ -794,7 +751,7 @@ export async function runIntervalFlow(
       formText("Раз во сколько недель присылать напоминание?"),
       buildNumberPicker(1, 4),
     );
-    const weeks = await waitNumberPick(conversation);
+    const weeks = await waitNumericPick(conversation, NUMBER_PICK);
     if (weeks === "cancel") return "cancel";
 
     await renderScreen(
@@ -804,7 +761,7 @@ export async function runIntervalFlow(
       formText("В какой день недели присылать напоминание?"),
       buildWeekdayPicker(),
     );
-    const weekday = await waitWeekdayPick(conversation);
+    const weekday = await waitNumericPick(conversation, WEEKDAY_PICK);
     if (weekday === "cancel") return "cancel";
 
     const timeRes = await pickSingleTime(conversation, ctx, chatId, messageId, formText, "В какое время присылать напоминание?");
@@ -822,7 +779,7 @@ export async function runIntervalFlow(
     formText("Раз во сколько месяцев присылать напоминание?"),
     buildNumberPicker(1, 12),
   );
-  const months = await waitNumberPick(conversation);
+  const months = await waitNumericPick(conversation, NUMBER_PICK);
   if (months === "cancel") return "cancel";
 
   await renderScreen(
@@ -832,7 +789,7 @@ export async function runIntervalFlow(
     formText("Какого числа месяца присылать напоминание?"),
     buildNumberPicker(1, 31),
   );
-  const dayOfMonth = await waitNumberPick(conversation);
+  const dayOfMonth = await waitNumericPick(conversation, NUMBER_PICK);
   if (dayOfMonth === "cancel") return "cancel";
 
   const timeRes = await pickSingleTime(conversation, ctx, chatId, messageId, formText, "В какое время присылать напоминание?");
@@ -1028,7 +985,7 @@ export function summarizeDraft(draft: EventDraft): string {
     } else if (s.unit === "days") {
       scheduleLine = `раз в ${s.every} дн. в ${s.time}`;
     } else if (s.unit === "weeks") {
-      scheduleLine = `раз в ${s.every} нед., по ${WEEKDAY_LABELS[s.weekday ?? 0]}, в ${s.time}`;
+      scheduleLine = `раз в ${s.every} нед., по ${WEEKDAYS[s.weekday ?? 0]}, в ${s.time}`;
     } else {
       scheduleLine = `раз в ${s.every} мес., ${s.dayOfMonth} числа, в ${s.time}`;
     }

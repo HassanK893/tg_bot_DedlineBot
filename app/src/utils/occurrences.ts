@@ -33,6 +33,21 @@ function localEndOfDay(d: DatePart, zone: string): DateTime {
   return localMidnight(d, zone).plus({ days: 1 }).minus({ milliseconds: 1 });
 }
 
+/**
+ * Общий сборщик серии: от anchor с шагом advance, пока не вышли за end
+ * (включительно). Все четыре режима интервала отличаются ровно двумя вещами —
+ * первым моментом и шагом, — поэтому сам цикл здесь один на всех.
+ */
+function collectSeries(anchor: DateTime, end: DateTime, advance: (t: DateTime) => DateTime): Date[] {
+  const result: Date[] = [];
+  let t = anchor;
+  while (t <= end) {
+    result.push(t.toJSDate());
+    t = advance(t);
+  }
+  return result;
+}
+
 export interface EventScheduleInput {
   startDate: DatePart;
   endDate: DatePart;
@@ -74,14 +89,11 @@ function computeCustomOccurrences(entries: CustomDateEntry[], zone: string): Dat
  * шагом до конца дня endDate включительно.
  */
 function computeHourlyOccurrences(startDate: DatePart, endDate: DatePart, every: number, zone: string): Date[] {
-  const end = localEndOfDay(endDate, zone);
-  const result: Date[] = [];
-  let t = localMidnight(startDate, zone).plus({ hours: every });
-  while (t <= end) {
-    result.push(t.toJSDate());
-    t = t.plus({ hours: every });
-  }
-  return result;
+  return collectSeries(
+    localMidnight(startDate, zone).plus({ hours: every }),
+    localEndOfDay(endDate, zone),
+    (t) => t.plus({ hours: every }),
+  );
 }
 
 /** Дни: первое срабатывание — сам startDate в `time`, дальше каждые `every` дней до endDate включительно. */
@@ -92,14 +104,11 @@ function computeDailyOccurrences(
   time: string,
   zone: string,
 ): Date[] {
-  const end = localEndOfDay(endDate, zone);
-  const result: Date[] = [];
-  let t = localDateTime(startDate, time, zone);
-  while (t <= end) {
-    result.push(t.toJSDate());
-    t = t.plus({ days: every });
-  }
-  return result;
+  return collectSeries(
+    localDateTime(startDate, time, zone),
+    localEndOfDay(endDate, zone),
+    (t) => t.plus({ days: every }),
+  );
 }
 
 /**
@@ -114,21 +123,15 @@ function computeWeeklyOccurrences(
   time: string,
   zone: string,
 ): Date[] {
-  const end = localEndOfDay(endDate, zone);
   // luxon: weekday 1=Пн..7=Вс — переводим из нашего 0=Пн..6=Вс.
   const targetLuxonWeekday = weekday + 1;
 
-  let anchor = localDateTime(startDate, time, zone);
-  const diff = (targetLuxonWeekday - anchor.weekday + 7) % 7;
-  anchor = anchor.plus({ days: diff });
+  const start = localDateTime(startDate, time, zone);
+  const diff = (targetLuxonWeekday - start.weekday + 7) % 7;
 
-  const result: Date[] = [];
-  let t = anchor;
-  while (t <= end) {
-    result.push(t.toJSDate());
-    t = t.plus({ weeks: every });
-  }
-  return result;
+  return collectSeries(start.plus({ days: diff }), localEndOfDay(endDate, zone), (t) =>
+    t.plus({ weeks: every }),
+  );
 }
 
 /**
@@ -155,13 +158,7 @@ function computeMonthlyOccurrences(
     candidate = clampedInMonth(localMidnight(startDate, zone).plus({ months: 1 }));
   }
 
-  const result: Date[] = [];
-  let t = candidate;
-  while (t <= end) {
-    result.push(t.toJSDate());
-    t = clampedInMonth(t.plus({ months: every }));
-  }
-  return result;
+  return collectSeries(candidate, end, (t) => clampedInMonth(t.plus({ months: every })));
 }
 
 function computeIntervalOccurrences(

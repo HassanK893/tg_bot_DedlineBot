@@ -1,4 +1,6 @@
 import { InlineKeyboard } from "grammy";
+import type { DatePart } from "../types/event.js";
+import { dateSortKey, daysInMonth } from "../utils/datePart.js";
 
 const MONTHS = [
   "Январь",
@@ -15,7 +17,8 @@ const MONTHS = [
   "Декабрь",
 ];
 
-const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+/** 0=Пн..6=Вс — тот же порядок, что в IntervalSchedule.weekday. Единственный источник подписей. */
+export const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 /** Родительный падеж — для дат вида «15 августа 2026», не для заголовка. */
 const MONTHS_GENITIVE = [
@@ -40,7 +43,7 @@ export function monthTitle(year: number, month: number): string {
   return `${MONTHS[month] ?? "?"} ${year}`;
 }
 
-export function formatDate(d: { year: number; month: number; day: number }): string {
+export function formatDate(d: DatePart): string {
   return `${d.day} ${MONTHS_GENITIVE[d.month] ?? "?"} ${d.year}`;
 }
 
@@ -49,11 +52,8 @@ function shiftMonth(year: number, month: number, delta: number) {
   return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
 }
 
-export interface CalendarDate {
-  year: number;
-  month: number;
-  day: number;
-}
+/** Календарь оперирует ровно той же датой, что и остальной домен, — отдельного типа не заводим. */
+export type CalendarDate = DatePart;
 
 export interface CalendarRange {
   /** Дни раньше этой даты показываются пустой неактивной клеткой. */
@@ -62,15 +62,11 @@ export interface CalendarRange {
   max?: CalendarDate;
 }
 
-function toUtcMs(d: CalendarDate): number {
-  return Date.UTC(d.year, d.month, d.day);
-}
-
 function isWithinRange(year: number, month: number, day: number, range?: CalendarRange): boolean {
   if (!range) return true;
-  const ms = toUtcMs({ year, month, day });
-  if (range.min && ms < toUtcMs(range.min)) return false;
-  if (range.max && ms > toUtcMs(range.max)) return false;
+  const ms = dateSortKey({ year, month, day });
+  if (range.min && ms < dateSortKey(range.min)) return false;
+  if (range.max && ms > dateSortKey(range.max)) return false;
   return true;
 }
 
@@ -81,7 +77,7 @@ function isMarked(year: number, month: number, day: number, marked?: CalendarDat
 /** Поднимает нижнюю границу диапазона до today, если она была раньше или отсутствовала. */
 function mergeMinToday(range: CalendarRange | undefined, today?: CalendarDate): CalendarRange | undefined {
   if (!today) return range;
-  const min = range?.min && toUtcMs(range.min) > toUtcMs(today) ? range.min : today;
+  const min = range?.min && dateSortKey(range.min) > dateSortKey(today) ? range.min : today;
   return { ...range, min };
 }
 
@@ -107,14 +103,14 @@ function appendDayGrid(
 
   // getUTCDay(): 0 — воскресенье, поэтому сдвигаем к понедельнику
   const firstWeekday = (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7;
-  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const dayCount = daysInMonth(year, month);
 
   let cell = 0;
   for (let i = 0; i < firstWeekday; i++) {
     kb.text(EMPTY_CELL, "cal:noop");
     cell++;
   }
-  for (let day = 1; day <= daysInMonth; day++) {
+  for (let day = 1; day <= dayCount; day++) {
     if (isMarked(year, month, day, marked)) {
       kb.text(`✓${day}`, "cal:noop");
     } else if (isWithinRange(year, month, day, range)) {

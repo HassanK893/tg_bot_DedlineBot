@@ -24,12 +24,30 @@ async function resolveUser(ctx: Context): Promise<User | undefined> {
   return userService.getByTelegramId(telegramId);
 }
 
-export async function showList(ctx: Context) {
+interface Screen {
+  chatId: number;
+  messageId: number;
+  user: User;
+}
+
+/**
+ * Общий пролог всех экранов меню: гасим «часики» на нажатой кнопке и достаём
+ * то, без чего экран не нарисовать. undefined — рисовать нечего, хендлер молча
+ * выходит.
+ */
+async function openScreen(ctx: Context): Promise<Screen | undefined> {
   if (ctx.callbackQuery) await ctx.answerCallbackQuery();
   const chatId = ctx.chatId;
   const messageId = ctx.msgId;
   const user = await resolveUser(ctx);
-  if (chatId === undefined || messageId === undefined || user === undefined) return;
+  if (chatId === undefined || messageId === undefined || user === undefined) return undefined;
+  return { chatId, messageId, user };
+}
+
+export async function showList(ctx: Context) {
+  const screen = await openScreen(ctx);
+  if (!screen) return;
+  const { chatId, messageId, user } = screen;
 
   const events = await eventService.listByUser(user.id);
 
@@ -56,11 +74,9 @@ export async function showList(ctx: Context) {
 }
 
 export async function showDetail(ctx: Context, eventId: string) {
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery();
-  const chatId = ctx.chatId;
-  const messageId = ctx.msgId;
-  const user = await resolveUser(ctx);
-  if (chatId === undefined || messageId === undefined || user === undefined) return;
+  const screen = await openScreen(ctx);
+  if (!screen) return;
+  const { chatId, messageId, user } = screen;
 
   const event = await eventService.getForUser(eventId, user.id);
   const draft = eventService.toDraftShape(event);
@@ -129,11 +145,9 @@ export async function doDelete(ctx: Context, eventId: string) {
 }
 
 export async function confirmDone(ctx: Context, eventId: string) {
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery();
-  const chatId = ctx.chatId;
-  const messageId = ctx.msgId;
-  const user = await resolveUser(ctx);
-  if (chatId === undefined || messageId === undefined || user === undefined) return;
+  const screen = await openScreen(ctx);
+  if (!screen) return;
+  const { chatId, messageId, user } = screen;
 
   const event = await eventService.getForUser(eventId, user.id);
   const question =

@@ -2,7 +2,6 @@ import { Context, InlineKeyboard } from "grammy";
 import {
   answerStaleCallback,
   cancelOnlyKeyboard,
-  dateSortKey,
   isCancel,
   MyConversation,
   pickCalendarDate,
@@ -11,6 +10,7 @@ import {
   runCustomDatesFlow,
   runDateAndScheduleFlow,
   runIntervalFlow,
+  skipUnexpected,
   summarizeDraft,
   tryDelete,
   waitChoice,
@@ -21,6 +21,7 @@ import { formatDate, type CalendarRange } from "./calendar.js";
 import { showDetail } from "./eventsMenu.js";
 import type { CompleteEventDraft, DatePart, EventDraft, EventKind } from "../types/event.js";
 import { escapeHtml } from "../utils/html.js";
+import { dateSortKey } from "../utils/datePart.js";
 import * as eventService from "../modules/event/event.service.js";
 import * as userService from "../modules/user/user.service.js";
 
@@ -237,18 +238,7 @@ export async function editEventConversation(conversation: MyConversation, ctx: C
         new InlineKeyboard().text("✏️ Редактировать", "fieldedit:go").row().text("← Назад", "fieldedit:back"),
       );
 
-      const next = await conversation.wait();
-      const data = next.callbackQuery?.data;
-      if (data === "fieldedit:back" || isCancel(data)) {
-        if (data) await next.answerCallbackQuery();
-        return;
-      }
-      if (data !== "fieldedit:go") {
-        if (next.message) await tryDelete(next);
-        else await answerStaleCallback(next);
-        continue;
-      }
-      await next.answerCallbackQuery();
+      if ((await waitFieldEditGate(conversation)) === "back") return;
 
       await renderScreen(
         ctx,
@@ -286,18 +276,7 @@ export async function editEventConversation(conversation: MyConversation, ctx: C
         new InlineKeyboard().text("✏️ Изменить фото", "fieldedit:go").row().text("← Назад", "fieldedit:back"),
       );
 
-      const next = await conversation.wait();
-      const data = next.callbackQuery?.data;
-      if (data === "fieldedit:back" || isCancel(data)) {
-        if (data) await next.answerCallbackQuery();
-        return;
-      }
-      if (data !== "fieldedit:go") {
-        if (next.message) await tryDelete(next);
-        else await answerStaleCallback(next);
-        continue;
-      }
-      await next.answerCallbackQuery();
+      if ((await waitFieldEditGate(conversation)) === "back") return;
 
       await renderScreen(ctx, chatId, messageId, formText("Пришлите новое фото."), cancelOnlyKeyboard());
       const res = await waitPhotoField(conversation);
@@ -487,7 +466,7 @@ export async function editEventConversation(conversation: MyConversation, ctx: C
         continue;
       }
 
-      if (isCancelData(data)) {
+      if (isCancel(data)) {
         await next.answerCallbackQuery();
         return "cancel";
       }
@@ -524,6 +503,24 @@ export async function editEventConversation(conversation: MyConversation, ctx: C
   }
 }
 
-function isCancelData(data: string | undefined): boolean {
-  return data === "wizard:cancel" || data === "menu:main";
+/**
+ * Гейт мини-экрана правки поля: ждёт «✏️ Редактировать» либо «← Назад».
+ * Всё прочее — не тот апдейт: сообщение убираем из чата, чужой callback
+ * объясняем алертом и ждём дальше. Общий для текстовых полей и для фото —
+ * экран у них разный, а развилка одна и та же.
+ */
+async function waitFieldEditGate(conversation: MyConversation): Promise<"go" | "back"> {
+  while (true) {
+    const next = await conversation.wait();
+    const data = next.callbackQuery?.data;
+    if (data === "fieldedit:back" || isCancel(data)) {
+      if (data) await next.answerCallbackQuery();
+      return "back";
+    }
+    if (data === "fieldedit:go") {
+      await next.answerCallbackQuery();
+      return "go";
+    }
+    await skipUnexpected(next);
+  }
 }
