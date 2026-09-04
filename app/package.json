@@ -6,7 +6,7 @@
   "scripts": {
     "build": "prisma generate && tsc",
     "start": "node dist/src/prod.js",
-    "bot": "nodemon --ext ts --watch src --exec \"tsx src/bot/index.ts\""
+    "bot": "nodemon --ext ts --watch src --exec \"tsx src/dev.ts\""
   },
   "license": "ISC",
   "devDependencies": {

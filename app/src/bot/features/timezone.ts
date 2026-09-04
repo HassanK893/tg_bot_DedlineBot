@@ -1,11 +1,10 @@
-import { Context } from "grammy";
-import type { Conversation } from "@grammyjs/conversations";
-import { answerStaleCallback, tryDelete } from "./eventSteps.js";
-import { buildTimezonePicker, TIMEZONE_OPTIONS } from "./timezone.js";
-import { mainMenuKeyboard, mainMenuText, markMainMenuMessage, staleOldMainMenu } from "./mainMenu.js";
-import * as userService from "../modules/user/user.service.js";
-
-type MyConversation = Conversation<Context>;
+import { Composer } from "grammy";
+import type { Context as BotContext, ConversationContext as Context, MyConversation } from "../context.js";
+import { MENU, TIMEZONE_PICK_PATTERN } from "../callback-data/menu.js";
+import { answerStaleCallback, tryDelete } from "../helpers/event-steps.js";
+import { buildTimezonePicker, TIMEZONE_OPTIONS } from "../keyboards/timezone.js";
+import { mainMenuKeyboard, mainMenuText, markMainMenuMessage, staleOldMainMenu } from "../keyboards/main-menu.js";
+import * as userService from "../../modules/user/user.service.js";
 
 /**
  * Выбор часового пояса — единственный обязательный шаг онбординга. Вызывается
@@ -37,7 +36,7 @@ export async function selectTimezoneConversation(conversation: MyConversation, c
       if (next.message) await tryDelete(next);
       continue;
     }
-    const match = data.match(/^tz:pick:(\d+)$/);
+    const match = data.match(TIMEZONE_PICK_PATTERN);
     if (!match) {
       await answerStaleCallback(next);
       continue;
@@ -63,3 +62,15 @@ export async function selectTimezoneConversation(conversation: MyConversation, c
     return;
   }
 }
+
+// --- регистрация -------------------------------------------------------------
+// createConversation(selectTimezoneConversation, "selectTimezone") подключается
+// в bot/index.ts — из-за порядка middleware (см. комментарий там).
+
+const composer = new Composer<BotContext>();
+
+composer.callbackQuery(MENU.timezone, async (ctx) => {
+  await ctx.conversation.enter("selectTimezone");
+});
+
+export { composer as timezoneFeature };

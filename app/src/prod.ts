@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
-import { createBot, registerBotCommands, startBackgroundServices } from "./bot/createBot.js";
+import { createBot } from "./bot/index.js";
+import { setCommands } from "./bot/handlers/commands/setcommands.js";
+import { startBackgroundServices } from "./background.js";
 import mainRouter from "./routes/index.js";
 import prisma from "./lib/prisma.js";
 
@@ -46,7 +48,7 @@ const server = app.listen(port, "0.0.0.0", () => {
 
 // Список команд и кнопка «Меню» — косметика: если Telegram в этот момент
 // недоступен, ронять из-за этого приложение незачем.
-await registerBotCommands(bot).catch((err) =>
+await setCommands(bot).catch((err) =>
   console.error("[bot] не удалось зарегистрировать список команд:", err),
 );
 

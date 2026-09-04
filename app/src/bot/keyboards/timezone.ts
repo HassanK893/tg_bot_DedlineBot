@@ -1,4 +1,5 @@
 import { InlineKeyboard } from "grammy";
+import { timezonePickData } from "../callback-data/menu.js";
 
 export interface TimezoneOption {
   label: string;
@@ -24,11 +25,10 @@ export const TIMEZONE_OPTIONS: TimezoneOption[] = [
   { label: "Ташкент", zone: "Asia/Tashkent" },
 ];
 
-/** callback_data: tz:pick:<индекс в TIMEZONE_OPTIONS> */
 export function buildTimezonePicker(): InlineKeyboard {
   const kb = new InlineKeyboard();
   TIMEZONE_OPTIONS.forEach((opt, i) => {
-    kb.text(opt.label, `tz:pick:${i}`);
+    kb.text(opt.label, timezonePickData(i));
     if (i % 2 === 1) kb.row();
   });
   if (TIMEZONE_OPTIONS.length % 2 !== 0) kb.row();

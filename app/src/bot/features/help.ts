@@ -1,3 +1,6 @@
+import { Composer } from "grammy";
+import type { Context } from "../context.js";
+
 /** Статический справочный текст для /info и /test — HTML, без пользовательского ввода, экранировать не нужно. */
 
 export const INFO_TEXT = [
@@ -58,3 +61,17 @@ export const TEST_GUIDE_TEXT = [
   "• Done на ежемесячном → пометка «до следующего месяца», кнопка меняется на 🔄 Восстановить",
   "• Удалить → подтверждение → пропадает из списка",
 ].join("\n");
+
+// --- регистрация команд ------------------------------------------------------
+
+const composer = new Composer<Context>();
+
+composer.command("test", async (ctx) => {
+  await ctx.reply(TEST_GUIDE_TEXT, { parse_mode: "HTML" });
+});
+
+composer.command("info", async (ctx) => {
+  await ctx.reply(INFO_TEXT, { parse_mode: "HTML" });
+});
+
+export { composer as helpFeature };

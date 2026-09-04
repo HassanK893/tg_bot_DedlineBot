@@ -7,7 +7,7 @@
 export type EventKind = "once" | "monthly";
 export type ScheduleType = "custom" | "interval";
 
-/** month — 0-индексный (JS Date convention), как везде в calendar.ts/wizard.ts. */
+/** month — 0-индексный (JS Date convention), как везде в calendar.ts/features/create-event.ts. */
 export interface DatePart {
   year: number;
   month: number;

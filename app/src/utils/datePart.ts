@@ -2,7 +2,7 @@ import type { DatePart } from "../types/event.js";
 
 /**
  * DatePart <-> Postgres `@db.Date` — хранится как UTC-полночь, без часового
- * пояса (это чистая календарная дата, тот же принцип, что и в bot/calendar.ts
+ * пояса (это чистая календарная дата, тот же принцип, что и в bot/keyboards/calendar.ts
  * через Date.UTC). Не путать с utils/occurrences.ts, где даты уже привязаны
  * к часовому поясу пользователя ради момента отправки.
  */
@@ -16,8 +16,8 @@ export function utcDateToDatePart(date: Date): DatePart {
 
 /**
  * Календарная дата одним числом — для сравнения и сортировки дат без времени.
- * Общая точка для UI-календаря (bot/calendar.ts) и логики визарда
- * (bot/eventSteps.ts, bot/editWizard.ts).
+ * Общая точка для UI-календаря (bot/keyboards/calendar.ts) и логики визарда
+ * (bot/helpers/event-steps.ts, bot/features/edit-event.ts).
  */
 export function dateSortKey(d: DatePart): number {
   return Date.UTC(d.year, d.month, d.day);

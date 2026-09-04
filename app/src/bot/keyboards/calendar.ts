@@ -1,6 +1,6 @@
 import { InlineKeyboard } from "grammy";
-import type { DatePart } from "../types/event.js";
-import { dateSortKey, daysInMonth } from "../utils/datePart.js";
+import type { DatePart } from "../../types/event.js";
+import { dateSortKey, daysInMonth } from "../../utils/datePart.js";
 
 const MONTHS = [
   "Январь",

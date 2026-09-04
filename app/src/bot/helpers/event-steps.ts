@@ -1,5 +1,6 @@
-import { Context, InlineKeyboard } from "grammy";
-import type { Conversation } from "@grammyjs/conversations";
+import { InlineKeyboard } from "grammy";
+import type { ConversationContext as Context, MyConversation } from "../context.js";
+import { CANCEL_DATA, isCancel } from "../filters/is-cancel.js";
 import {
   buildCalendar,
   buildCustomDatePicker,
@@ -12,8 +13,8 @@ import {
   monthTitle,
   WEEKDAYS,
   type CalendarRange,
-} from "./calendar.js";
-import { dateSortKey } from "../utils/datePart.js";
+} from "../keyboards/calendar.js";
+import { dateSortKey } from "../../utils/datePart.js";
 import type {
   CustomDateEntry,
   DatePart,
@@ -22,17 +23,16 @@ import type {
   IntervalSchedule,
   IntervalUnit,
   ScheduleType,
-} from "../types/event.js";
-import { escapeHtml } from "../utils/html.js";
+} from "../../types/event.js";
+import { escapeHtml } from "../../utils/html.js";
 
 /**
- * Переиспользуемые шаги визарда — вынесены из wizard.ts, чтобы и создание
- * события (wizard.ts), и его редактирование (editWizard.ts) прогоняли
+ * Переиспользуемые шаги визарда — вынесены из features/create-event.ts, чтобы и создание
+ * события (features/create-event.ts), и его редактирование (features/edit-event.ts) прогоняли
  * ПОЛЬЗОВАТЕЛЯ через один и тот же UI-код: правишь дату — используешь тот же
  * pickCalendarDate/pickFixedMonthDate, что и при создании, и т.д.
  */
 
-export type MyConversation = Conversation<Context>;
 
 /**
  * Какие единицы интервала вообще имеют смысл при выбранном промежутке
@@ -87,13 +87,6 @@ export async function renderScreen(
   });
 }
 
-/**
- * Кнопка «В меню» встроена в buildCalendar с фиксированной callback_data
- * "menu:main" — внутри визарда она означает то же, что и наша "wizard:cancel".
- */
-export function isCancel(data: string | undefined): boolean {
-  return data === "wizard:cancel" || data === "menu:main";
-}
 
 export async function tryDelete(ctx: Context) {
   try {
@@ -382,7 +375,7 @@ export async function pickManualTime(
       chatId,
       messageId,
       renderText(hint),
-      new InlineKeyboard().text("✖ Отмена", "wizard:cancel"),
+      new InlineKeyboard().text("✖ Отмена", CANCEL_DATA),
     );
 
     const next = await conversation.wait();
@@ -704,7 +697,7 @@ export async function runIntervalFlow(
   if (units.includes("weeks")) unitKeyboard.text("📅 Недели", "int:unit:weeks");
   if (units.includes("months")) unitKeyboard.text("🗓 Месяцы", "int:unit:months");
   if (units.includes("weeks") || units.includes("months")) unitKeyboard.row();
-  unitKeyboard.text("↩ Сменить режим", "sched:back").row().text("✖ Отмена", "wizard:cancel");
+  unitKeyboard.text("↩ Сменить режим", "sched:back").row().text("✖ Отмена", CANCEL_DATA);
 
   await renderScreen(ctx, chatId, messageId, formText("Выберите, как часто присылать напоминание."), unitKeyboard);
 
@@ -813,8 +806,8 @@ export type DateAndScheduleResult = "cancel" | "done";
 /**
  * Даты начала/конца (в зависимости от kind) + выбор режима напоминаний —
  * идентичная последовательность и при создании события (шаги 6-8 в
- * wizard.ts), и при редактировании «Даты и напоминания» одним блоком
- * (editWizard.ts). stepLabel — только текст подписи шага, сама логика общая.
+ * features/create-event.ts), и при редактировании «Даты и напоминания» одним блоком
+ * (features/edit-event.ts). stepLabel — только текст подписи шага, сама логика общая.
  */
 export async function runDateAndScheduleFlow(
   conversation: MyConversation,
@@ -902,7 +895,7 @@ export async function runDateAndScheduleFlow(
       .text("🗓 Свои даты", "sched:custom")
       .text("🔁 Интервал", "sched:interval")
       .row()
-      .text("✖ Отмена", "wizard:cancel");
+      .text("✖ Отмена", CANCEL_DATA);
 
   await renderScreen(
     ctx,
@@ -1005,7 +998,7 @@ export function summarizeDraft(draft: EventDraft): string {
   ].join("\n\n");
 }
 
-export const cancelOnlyKeyboard = () => new InlineKeyboard().text("✖ Отмена", "wizard:cancel");
+export const cancelOnlyKeyboard = () => new InlineKeyboard().text("✖ Отмена", CANCEL_DATA);
 
 export const skipOrCancelKeyboard = () =>
-  new InlineKeyboard().text("Пропустить", "step:skip").row().text("✖ Отмена", "wizard:cancel");
+  new InlineKeyboard().text("Пропустить", "step:skip").row().text("✖ Отмена", CANCEL_DATA);

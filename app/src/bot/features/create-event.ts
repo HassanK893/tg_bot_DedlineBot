@@ -1,7 +1,8 @@
-import { Context, InlineKeyboard } from "grammy";
+import { Composer, InlineKeyboard } from "grammy";
+import type { Context as BotContext, ConversationContext as Context, MyConversation } from "../context.js";
+import { MENU } from "../callback-data/menu.js";
 import {
   cancelOnlyKeyboard,
-  MyConversation,
   renderScreen,
   runDateAndScheduleFlow,
   skipOrCancelKeyboard,
@@ -9,15 +10,15 @@ import {
   waitChoice,
   waitPhotoField,
   waitTextField,
-} from "./eventSteps.js";
-import { mainMenuKeyboard, mainMenuText } from "./mainMenu.js";
-import type { CompleteEventDraft, EventDraft } from "../types/event.js";
-import * as eventService from "../modules/event/event.service.js";
-import * as userService from "../modules/user/user.service.js";
+} from "../helpers/event-steps.js";
+import { mainMenuKeyboard, mainMenuText } from "../keyboards/main-menu.js";
+import type { CompleteEventDraft, EventDraft } from "../../types/event.js";
+import * as eventService from "../../modules/event/event.service.js";
+import * as userService from "../../modules/user/user.service.js";
 
 /**
  * Оркестрация создания события: 8 шагов, каждый прогоняется через
- * переиспользуемые примитивы из eventSteps.ts (общие с editWizard.ts). Здесь
+ * переиспользуемые примитивы из helpers/event-steps.ts (общие с features/edit-event.ts). Здесь
  * только последовательность шагов, живая форма (fieldsSummary/formText) и
  * финальный персист в БД + постановка напоминаний в очередь.
  */
@@ -138,7 +139,7 @@ export async function createEventConversation(conversation: MyConversation, ctx:
   // --- 6-8. Даты начала/конца + режим напоминаний ---------------------------
   // Разовое: свободный календарь. Ежемесячное: сначала фиксируем месяц
   // отдельным шагом, дальше начало и конец выбираются днями внутри него.
-  // Общая логика (используется и здесь, и в editWizard.ts) — в eventSteps.ts.
+  // Общая логика (используется и здесь, и в features/edit-event.ts) — в helpers/event-steps.ts.
 
   const scheduleRes = await runDateAndScheduleFlow(conversation, ctx, chatId, messageId, formText, draft, {
     start: "Шаг 6 из 8.",
@@ -176,3 +177,15 @@ export async function createEventConversation(conversation: MyConversation, ctx:
     new InlineKeyboard().text("🏠 В главное меню", "menu:main"),
   );
 }
+
+// --- регистрация -------------------------------------------------------------
+// createConversation(createEventConversation, "createEvent") подключается в
+// bot/index.ts — из-за порядка middleware (см. комментарий там).
+
+const composer = new Composer<BotContext>();
+
+composer.callbackQuery(MENU.create, async (ctx) => {
+  await ctx.conversation.enter("createEvent");
+});
+
+export { composer as createEventFeature };

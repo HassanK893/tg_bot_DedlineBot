@@ -72,18 +72,50 @@ polling — сам ходит за апдейтами, домен и HTTPS не 
 
 ## Слой bot/ (Telegram)
 
+Раскладка повторяет [bot-base/telegram-bot-template](https://github.com/bot-base/telegram-bot-template)
+— распространённую структуру для grammY. Смысл: каждый кусок поведения бота
+живёт в своём файле в `features/` и ничего не знает о соседях, а порядок
+middleware задаётся в одном месте — `index.ts`.
+
+```
+bot/
+├── callback-data/   строки callback_data: и сборка, и разбор в одном месте
+├── features/        по файлу на кусок поведения, каждый экспортирует Composer
+├── filters/         предикаты по данным кнопки
+├── handlers/        обработчик ошибок + разовый setMyCommands
+├── helpers/         общий UI-код визардов
+├── keyboards/       чистые билдеры клавиатур
+├── middlewares/     сквозные обёртки (лог апдейтов)
+├── context.ts       типы контекста
+└── index.ts         createBot(): порядок middleware и подключение features
+```
+
 | Файл | Роль |
 |---|---|
-| `index.ts` | Точка входа: регистрирует все conversation'ы и callback-хендлеры, запускает воркер напоминаний, `/start`/`/menu` |
-| `calendar.ts` | Все inline-клавиатуры для дат/времени/чисел/дней недели — чистые билдеры без бизнес-логики |
-| `eventSteps.ts` | **Переиспользуемые примитивы визарда** — pickCalendarDate, runCustomDatesFlow, runIntervalFlow, `runDateAndScheduleFlow` (даты+расписание одним блоком) и `summarizeDraft` (рендер полей события). Общие для создания И редактирования |
-| `wizard.ts` | Оркестрация создания события (8 шагов) — почти вся логика делегирована в eventSteps.ts, тут только последовательность + персист в БД |
-| `editWizard.ts` | Точечное редактирование полей уже созданного события — переиспользует те же примитивы из eventSteps.ts |
-| `eventsMenu.ts` | «Мои события»: список/карточка/пауза/резюм/удаление — ПЛОСКИЕ callback-хендлеры (не conversation, свободного ввода нет) |
-| `onboarding.ts` + `timezone.ts` | Выбор часового пояса при первом /start (курированный список RU/СНГ зон) |
-| `mainMenu.ts` | Текст и клавиатура главного меню |
+| `index.ts` | `createBot()` — единственное место, где задан порядок middleware. Ни транспорта, ни воркеров: их поднимают точки входа `src/dev.ts` и `src/prod.ts` |
+| `context.ts` | Два типа контекста: `Context` снаружи визарда (есть `ctx.conversation`) и `ConversationContext` внутри (его нет). Путать нельзя |
+| `features/main-menu.ts` | `/start`, `/menu`, возврат в меню |
+| `features/create-event.ts` | Визард создания события (8 шагов) + вход в него |
+| `features/edit-event.ts` | Точечное редактирование полей — те же примитивы, что и при создании |
+| `features/events-menu.ts` | «Мои события»: список/карточка/пауза/резюм/удаление/Done — ПЛОСКИЕ хендлеры, не conversation (свободного ввода нет) |
+| `features/timezone.ts` | Выбор часового пояса при первом `/start` и из настроек |
+| `features/help.ts` | `/info` и `/test` |
+| `features/unhandled.ts` | Текст вне визарда. **Подключать только последним** — ловит любое сообщение |
+| `helpers/event-steps.ts` | **Переиспользуемые примитивы визарда** — `pickCalendarDate`, `runCustomDatesFlow`, `runIntervalFlow`, `runDateAndScheduleFlow`, `summarizeDraft`. Общие для создания И редактирования |
+| `callback-data/` | Строки `callback_data`: и сборка, и разбор в одном месте |
+| `keyboards/calendar.ts` | Клавиатуры дат/времени/чисел/дней недели — чистые билдеры без бизнес-логики |
+| `keyboards/main-menu.ts` | Текст и клавиатура главного меню + гашение устаревших копий |
+| `keyboards/timezone.ts` | Курированный список зон RU/СНГ |
 
-**Важно про grammY conversations:** любой вызов Prisma/Redis внутри функции-conversation обёрнут в `conversation.external(() => ...)` — иначе побочный эффект повторился бы при каждом реплее диалога. В `eventsMenu.ts` (плоские хендлеры) это не нужно.
+**Важно про grammY conversations:** любой вызов Prisma/Redis внутри
+функции-conversation обёрнут в `conversation.external(() => ...)` — иначе
+побочный эффект повторился бы при каждом реплее диалога. В
+`features/events-menu.ts` (плоские хендлеры) это не нужно.
+
+**Важно про порядок:** все три `createConversation(...)` подключены в
+`index.ts` выше любого хендлера. Войти в диалог можно только если его
+middleware уже отработал в этой цепочке — иначе `/start` не смог бы войти в
+`selectTimezone`, объявленный в другом файле.
 
 ## Слой modules/ (бэкенд, вертикальные срезы)
 

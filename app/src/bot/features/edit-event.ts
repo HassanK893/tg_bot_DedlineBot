@@ -1,9 +1,10 @@
-import { Context, InlineKeyboard } from "grammy";
+import { Composer, InlineKeyboard } from "grammy";
+import type { Context as BotContext, ConversationContext as Context, MyConversation } from "../context.js";
+import { eventPattern } from "../callback-data/event.js";
+import { isCancel } from "../filters/is-cancel.js";
 import {
   answerStaleCallback,
   cancelOnlyKeyboard,
-  isCancel,
-  MyConversation,
   pickCalendarDate,
   pickFixedMonthDate,
   renderScreen,
@@ -16,19 +17,19 @@ import {
   waitChoice,
   waitPhotoField,
   waitTextField,
-} from "./eventSteps.js";
-import { formatDate, type CalendarRange } from "./calendar.js";
-import { showDetail } from "./eventsMenu.js";
-import type { CompleteEventDraft, DatePart, EventDraft, EventKind } from "../types/event.js";
-import { escapeHtml } from "../utils/html.js";
-import { dateSortKey } from "../utils/datePart.js";
-import * as eventService from "../modules/event/event.service.js";
-import * as userService from "../modules/user/user.service.js";
+} from "../helpers/event-steps.js";
+import { formatDate, type CalendarRange } from "../keyboards/calendar.js";
+import { showDetail } from "./events-menu.js";
+import type { CompleteEventDraft, DatePart, EventDraft, EventKind } from "../../types/event.js";
+import { escapeHtml } from "../../utils/html.js";
+import { dateSortKey } from "../../utils/datePart.js";
+import * as eventService from "../../modules/event/event.service.js";
+import * as userService from "../../modules/user/user.service.js";
 
 /**
  * Редактирование уже созданного события — точечное подменю на 8 полей (те же
  * шаги, что и в визарде создания), каждое прогоняется через тот же UI-код
- * (eventSteps.ts). Тип события теперь тоже редактируем — со сбросом дат и
+ * (helpers/event-steps.ts). Тип события теперь тоже редактируем — со сбросом дат и
  * напоминаний (см. edit:field:kind), это осознанное решение пользователя.
  */
 export async function editEventConversation(conversation: MyConversation, ctx: Context, eventId: string) {
@@ -524,3 +525,20 @@ async function waitFieldEditGate(conversation: MyConversation): Promise<"go" | "
     await skipUnexpected(next);
   }
 }
+
+// --- регистрация -------------------------------------------------------------
+// createConversation(editEventConversation, "editEvent") подключается в
+// bot/index.ts — из-за порядка middleware (см. комментарий там).
+
+const composer = new Composer<BotContext>();
+
+composer.callbackQuery(eventPattern("edit"), async (ctx) => {
+  const id = ctx.match?.[1];
+  if (!id) {
+    await ctx.answerCallbackQuery();
+    return;
+  }
+  await ctx.conversation.enter("editEvent", id);
+});
+
+export { composer as editEventFeature };

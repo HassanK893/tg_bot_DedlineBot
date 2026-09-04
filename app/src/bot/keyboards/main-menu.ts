@@ -1,4 +1,5 @@
 import { Context, InlineKeyboard } from "grammy";
+import { MENU } from "../callback-data/menu.js";
 
 export function mainMenuText(name: string): string {
   return `Добро пожаловать, ${name}!\n\nЧто хотите сделать?`;
@@ -6,11 +7,11 @@ export function mainMenuText(name: string): string {
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📋 Мои события", "menu:list")
+    .text("📋 Мои события", MENU.list)
     .row()
-    .text("➕ Создать событие", "menu:create")
+    .text("➕ Создать событие", MENU.create)
     .row()
-    .text("⚙️ Часовой пояс", "menu:timezone");
+    .text("⚙️ Часовой пояс", MENU.timezone);
 }
 
 /**
