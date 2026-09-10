@@ -1,7 +1,7 @@
 import { Composer } from "grammy";
 import type { Context as BotContext, ConversationContext as Context, MyConversation } from "../context.js";
 import { MENU, TIMEZONE_PICK_PATTERN } from "../callback-data/menu.js";
-import { answerStaleCallback, tryDelete } from "../helpers/event-steps.js";
+import { answerStaleCallback, tryDelete } from "../helpers/screen.js";
 import { buildTimezonePicker, TIMEZONE_OPTIONS } from "../keyboards/timezone.js";
 import { mainMenuKeyboard, mainMenuText, markMainMenuMessage, staleOldMainMenu } from "../keyboards/main-menu.js";
 import * as userService from "../../modules/user/user.service.js";

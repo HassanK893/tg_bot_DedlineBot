@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import type { ConversationContext as Context, MyConversation } from "../context.js";
 import { CANCEL_DATA, isCancel } from "../filters/is-cancel.js";
+import { answerStaleCallback, renderScreen, skipUnexpected, tryDelete } from "./screen.js";
 import {
   buildCalendar,
   buildCustomDatePicker,
@@ -69,61 +70,6 @@ export function parseTime(raw: string): string | null {
   return `${hours.padStart(2, "0")}:${minutes}`;
 }
 
-
-/**
- * Все экраны визарда отправляются с parse_mode: "HTML" — единая точка,
- * чтобы не забыть его на одном из мест правки сообщения.
- */
-export async function renderScreen(
-  ctx: Context,
-  chatId: number,
-  messageId: number,
-  text: string,
-  keyboard: InlineKeyboard,
-) {
-  await ctx.api.editMessageText(chatId, messageId, text, {
-    reply_markup: keyboard,
-    parse_mode: "HTML",
-  });
-}
-
-
-export async function tryDelete(ctx: Context) {
-  try {
-    await ctx.deleteMessage();
-  } catch {
-    // сообщение могло устареть, или у бота нет прав — для теста не критично
-  }
-}
-
-const STALE_CALLBACK_MESSAGE =
-  "Это старое меню — у вас уже открыт другой диалог. Закончите его или нажмите «✖ Отмена» в текущем сообщении.";
-
-/**
- * Тап по кнопке из чужого/устаревшего сообщения, пока идёт этот диалог —
- * grammY conversations забирает себе все апдейты чата, такой тап не подходит
- * ни под один ожидаемый шаг. Без ответа кнопка просто «зависает» без
- * объяснений — отвечаем алертом вместо тишины.
- */
-export async function answerStaleCallback(ctx: Context): Promise<void> {
-  if (!ctx.callbackQuery) return;
-  try {
-    await ctx.answerCallbackQuery({ text: STALE_CALLBACK_MESSAGE, show_alert: true });
-  } catch {
-    // callback мог устареть — не критично
-  }
-}
-
-/**
- * Единая реакция на апдейт, которого текущий шаг не ждал: сообщение (не тот
- * тип ответа, стикер, команда) убираем из чата, чтобы оно не копилось и не
- * попало в поле как значение; чужой или устаревший callback объясняем алертом.
- * В обоих случаях шаг просто продолжает ждать нужный апдейт.
- */
-export async function skipUnexpected(ctx: Context): Promise<void> {
-  if (ctx.message) await tryDelete(ctx);
-  else await answerStaleCallback(ctx);
-}
 
 type TextFieldResult = { kind: "text"; value: string } | { kind: "skip" } | { kind: "cancel" };
 
@@ -946,59 +892,3 @@ export async function runDateAndScheduleFlow(
   }
 }
 
-/**
- * Единый рендер полей события в виде маркированного списка с иконками —
- * используется живой формой визарда, экраном «Мои события» и редактированием,
- * поэтому принимает EventDraft (общая форма, см. types/event.ts), а не
- * что-то специфичное для одного экрана.
- */
-export function summarizeDraft(draft: EventDraft): string {
-  const kindLabel = draft.kind === "once" ? "разовое" : draft.kind === "monthly" ? "ежемесячное" : "—";
-  const startLabel = draft.startDate ? formatDate(draft.startDate) : "—";
-  const endLabel = draft.endDate ? formatDate(draft.endDate) : "—";
-  const photoLabel = draft.photoFileId ? "добавлена ✅" : "—";
-
-  let scheduleLine: string;
-  if (draft.scheduleType === "custom") {
-    if (draft.customDates && draft.customDates.length > 0) {
-      const sorted = [...draft.customDates].sort((a, b) => dateSortKey(a.date) - dateSortKey(b.date));
-      const rows = sorted
-        .map((e) => `    • <b>${formatDate(e.date)}</b>: ${[...e.times].sort().join(", ")}`)
-        .join("\n");
-      scheduleLine = `свои даты\n${rows}`;
-    } else {
-      scheduleLine = "свои даты — пока не выбраны";
-    }
-  } else if (draft.scheduleType === "interval") {
-    const s = draft.intervalSchedule;
-    if (s === undefined) {
-      scheduleLine = "интервал — пока не настроено";
-    } else if (s.unit === "hours") {
-      scheduleLine = `раз в ${s.every} ч.`;
-    } else if (s.unit === "days") {
-      scheduleLine = `раз в ${s.every} дн. в ${s.time}`;
-    } else if (s.unit === "weeks") {
-      scheduleLine = `раз в ${s.every} нед., по ${WEEKDAYS[s.weekday ?? 0]}, в ${s.time}`;
-    } else {
-      scheduleLine = `раз в ${s.every} мес., ${s.dayOfMonth} числа, в ${s.time}`;
-    }
-  } else {
-    scheduleLine = "—";
-  }
-
-  return [
-    `📌 <b>Название:</b> ${draft.name ? escapeHtml(draft.name) : "—"}`,
-    `📝 <b>Описание:</b> ${draft.description ? escapeHtml(draft.description) : "—"}`,
-    `🔔 <b>Текст напоминаний:</b> ${draft.reminderText ? escapeHtml(draft.reminderText) : "—"}`,
-    `🖼 <b>Картинка:</b> ${photoLabel}`,
-    `🔁 <b>Тип:</b> ${kindLabel}`,
-    `▶️ <b>Дата начала:</b> ${startLabel}`,
-    `⏹ <b>Дата окончания:</b> ${endLabel}`,
-    `⏰ <b>Напоминания:</b> ${scheduleLine}`,
-  ].join("\n\n");
-}
-
-export const cancelOnlyKeyboard = () => new InlineKeyboard().text("✖ Отмена", CANCEL_DATA);
-
-export const skipOrCancelKeyboard = () =>
-  new InlineKeyboard().text("Пропустить", "step:skip").row().text("✖ Отмена", CANCEL_DATA);

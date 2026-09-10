@@ -3,7 +3,7 @@ import type { Context as BotContext, ConversationContext as Context } from "../c
 import type { User } from "../../generated/prisma/client.js";
 import { eventData, eventPattern } from "../callback-data/event.js";
 import { MENU } from "../callback-data/menu.js";
-import { summarizeDraft } from "../helpers/event-steps.js";
+import { summarizeDraft } from "../helpers/summarize-draft.js";
 import * as eventService from "../../modules/event/event.service.js";
 import * as userService from "../../modules/user/user.service.js";
 
