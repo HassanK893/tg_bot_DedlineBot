@@ -1,4 +1,4 @@
-import { formatDate, WEEKDAYS } from "../keyboards/calendar.js";
+import { formatDate, WEEKDAYS } from "./date-format.js";
 import { dateSortKey } from "../../utils/datePart.js";
 import { escapeHtml } from "../../utils/html.js";
 import type { EventDraft } from "../../types/event.js";

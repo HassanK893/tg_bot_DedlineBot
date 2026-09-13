@@ -1,20 +1,62 @@
-import { Composer, InlineKeyboard } from "grammy";
+import { Composer, type InlineKeyboard } from "grammy";
 import type { Context as BotContext, ConversationContext as Context, MyConversation } from "../context.js";
 import { MENU } from "../callback-data/menu.js";
-import { runDateAndScheduleFlow, waitChoice, waitPhotoField, waitTextField } from "../helpers/event-steps.js";
-import { cancelOnlyKeyboard, renderScreen, skipOrCancelKeyboard } from "../helpers/screen.js";
+import { EVENT_TYPE } from "../callback-data/wizard.js";
+import {
+  runDateAndScheduleFlow,
+  waitChoice,
+  waitPhotoField,
+  waitTextField,
+  type WizardScreen,
+} from "../helpers/steps/index.js";
+import { renderScreen } from "../helpers/screen.js";
 import { summarizeDraft } from "../helpers/summarize-draft.js";
 import { mainMenuKeyboard, mainMenuText } from "../keyboards/main-menu.js";
+import {
+  cancelOnlyKeyboard,
+  eventTypeKeyboard,
+  skipOrCancelKeyboard,
+  toMainMenuKeyboard,
+} from "../keyboards/wizard.js";
 import type { CompleteEventDraft, EventDraft } from "../../types/event.js";
 import * as eventService from "../../modules/event/event.service.js";
 import * as userService from "../../modules/user/user.service.js";
 
 /**
  * Оркестрация создания события: 8 шагов, каждый прогоняется через
- * переиспользуемые примитивы из helpers/event-steps.ts (общие с features/edit-event.ts). Здесь
+ * переиспользуемые примитивы из helpers/steps/ (общие с features/edit-event/). Здесь
  * только последовательность шагов, живая форма (fieldsSummary/formText) и
  * финальный персист в БД + постановка напоминаний в очередь.
  */
+
+/** Заголовок живой формы на всех шагах создания. */
+function createFormText(draft: EventDraft, question: string): string {
+  return ["📋 <b>Создание события</b>", "", summarizeDraft(draft), "", `<i>${question}</i>`].join("\n");
+}
+
+/** Финальный экран после успешного персиста. */
+function createdText(draft: EventDraft, scheduledCount: number): string {
+  return [
+    "✅ <b>Событие успешно создано</b>",
+    "",
+    summarizeDraft(draft),
+    "",
+    `<i>Запланировано напоминаний: ${scheduledCount}.</i>`,
+  ].join("\n");
+}
+
+/** Все обязательные поля на месте — можно сохранять. */
+function isComplete(draft: EventDraft): draft is CompleteEventDraft {
+  return Boolean(
+    draft.name &&
+      draft.description &&
+      draft.reminderText &&
+      draft.kind &&
+      draft.startDate &&
+      draft.endDate &&
+      draft.scheduleType,
+  );
+}
 
 export async function createEventConversation(conversation: MyConversation, ctx: Context) {
   const rawChatId = ctx.chatId;
@@ -34,29 +76,23 @@ export async function createEventConversation(conversation: MyConversation, ctx:
   // conversation.external гарантирует, что побочный эффект случится ровно раз.
   const user = await conversation.external(() => userService.getOrCreateUser(telegramId, firstName));
   if (!user.timezone) {
-    await renderScreen(
-      ctx,
-      chatId,
-      messageId,
-      "Сначала выберите часовой пояс — наберите /start.",
-      new InlineKeyboard().text("🏠 В главное меню", "menu:main"),
-    );
+    await renderScreen(ctx, chatId, messageId, "Сначала выберите часовой пояс — наберите /start.", toMainMenuKeyboard());
     return;
   }
   const timezone = user.timezone;
 
   const draft: EventDraft = {};
 
-  function fieldsSummary(): string {
-    return summarizeDraft(draft);
-  }
-
-  function formText(question: string): string {
-    return ["📋 <b>Создание события</b>", "", fieldsSummary(), "", `<i>${question}</i>`].join("\n");
-  }
+  const screen: WizardScreen = {
+    conversation,
+    ctx,
+    chatId,
+    messageId,
+    formText: (question) => createFormText(draft, question),
+  };
 
   async function renderForm(question: string, keyboard: InlineKeyboard) {
-    await renderScreen(ctx, chatId, messageId, formText(question), keyboard);
+    await renderScreen(ctx, chatId, messageId, screen.formText(question), keyboard);
   }
 
   async function finishCancelled() {
@@ -88,10 +124,7 @@ export async function createEventConversation(conversation: MyConversation, ctx:
 
   // --- 3. Текст напоминаний (обязательно) ----------------------------------
 
-  await renderForm(
-    "Шаг 3 из 8. Введите текст, который будет приходить в напоминаниях.",
-    cancelOnlyKeyboard(),
-  );
+  await renderForm("Шаг 3 из 8. Введите текст, который будет приходить в напоминаниях.", cancelOnlyKeyboard());
   const remRes = await waitTextField(conversation, false);
   if (remRes.kind === "cancel") {
     await finishCancelled();
@@ -101,10 +134,7 @@ export async function createEventConversation(conversation: MyConversation, ctx:
 
   // --- 4. Фото (опционально) ----------------------------------------------
 
-  await renderForm(
-    "Шаг 4 из 8. Пришлите фото для события — или нажмите «Пропустить».",
-    skipOrCancelKeyboard(),
-  );
+  await renderForm("Шаг 4 из 8. Пришлите фото для события — или нажмите «Пропустить».", skipOrCancelKeyboard());
   const photoRes = await waitPhotoField(conversation);
   if (photoRes.kind === "cancel") {
     await finishCancelled();
@@ -114,27 +144,20 @@ export async function createEventConversation(conversation: MyConversation, ctx:
 
   // --- 5. Тип события ------------------------------------------------------
 
-  await renderForm(
-    "Шаг 5 из 8. Выберите тип события.",
-    new InlineKeyboard()
-      .text("Разовое", "type:once")
-      .text("Ежемесячное", "type:monthly")
-      .row()
-      .text("✖ Отмена", "wizard:cancel"),
-  );
-  const typeRes = await waitChoice(conversation, ["type:once", "type:monthly"]);
+  await renderForm("Шаг 5 из 8. Выберите тип события.", eventTypeKeyboard());
+  const typeRes = await waitChoice(conversation, [EVENT_TYPE.once, EVENT_TYPE.monthly]);
   if (typeRes.kind === "cancel") {
     await finishCancelled();
     return;
   }
-  draft.kind = typeRes.value === "type:once" ? "once" : "monthly";
+  draft.kind = typeRes.value === EVENT_TYPE.once ? "once" : "monthly";
 
   // --- 6-8. Даты начала/конца + режим напоминаний ---------------------------
   // Разовое: свободный календарь. Ежемесячное: сначала фиксируем месяц
   // отдельным шагом, дальше начало и конец выбираются днями внутри него.
-  // Общая логика (используется и здесь, и в features/edit-event.ts) — в helpers/event-steps.ts.
+  // Общая логика (используется и здесь, и в features/edit-event/) — в helpers/steps/.
 
-  const scheduleRes = await runDateAndScheduleFlow(conversation, ctx, chatId, messageId, formText, draft, {
+  const scheduleRes = await runDateAndScheduleFlow(screen, draft, {
     start: "Шаг 6 из 8.",
     end: "Шаг 7 из 8.",
     schedule: "Шаг 8 из 8.",
@@ -146,29 +169,14 @@ export async function createEventConversation(conversation: MyConversation, ctx:
 
   // --- Персист в БД + постановка напоминаний в очередь ----------------------
 
-  if (!draft.name || !draft.description || !draft.reminderText || !draft.kind || !draft.startDate || !draft.endDate || !draft.scheduleType) {
+  if (!isComplete(draft)) {
     await finishCancelled(); // не должно происходить — все поля обязательны по шагам выше
     return;
   }
-  const completeDraft = draft as CompleteEventDraft;
 
-  const { scheduledCount } = await conversation.external(() =>
-    eventService.createEvent(user.id, completeDraft, timezone),
-  );
+  const { scheduledCount } = await conversation.external(() => eventService.createEvent(user.id, draft, timezone));
 
-  await renderScreen(
-    ctx,
-    chatId,
-    messageId,
-    [
-      "✅ <b>Событие успешно создано</b>",
-      "",
-      fieldsSummary(),
-      "",
-      `<i>Запланировано напоминаний: ${scheduledCount}.</i>`,
-    ].join("\n"),
-    new InlineKeyboard().text("🏠 В главное меню", "menu:main"),
-  );
+  await renderScreen(ctx, chatId, messageId, createdText(draft, scheduledCount), toMainMenuKeyboard());
 }
 
 // --- регистрация -------------------------------------------------------------

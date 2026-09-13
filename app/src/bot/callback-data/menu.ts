@@ -15,4 +15,10 @@ export function timezonePickData(index: number): string {
   return `tz:pick:${index}`;
 }
 
-export const TIMEZONE_PICK_PATTERN = /^tz:pick:(\d+)$/;
+const TIMEZONE_PICK_PATTERN = /^tz:pick:(\d+)$/;
+
+/** Индекс выбранного пояса из callback_data или null, если это не tz:pick. */
+export function parseTimezonePick(data: string): number | null {
+  const match = data.match(TIMEZONE_PICK_PATTERN);
+  return match ? Number(match[1]) : null;
+}

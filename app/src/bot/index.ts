@@ -4,7 +4,7 @@ import type { Context } from "./context.js";
 import { errorHandler } from "./handlers/error.js";
 import { updateLogger } from "./middlewares/update-logger.js";
 import { createEventConversation, createEventFeature } from "./features/create-event.js";
-import { editEventConversation, editEventFeature } from "./features/edit-event.js";
+import { editEventConversation, editEventFeature } from "./features/edit-event/index.js";
 import { eventsMenuFeature } from "./features/events-menu.js";
 import { helpFeature } from "./features/help.js";
 import { mainMenuFeature } from "./features/main-menu.js";

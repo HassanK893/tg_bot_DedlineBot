@@ -1,6 +1,5 @@
-import { InlineKeyboard } from "grammy";
+import type { InlineKeyboard } from "grammy";
 import type { ConversationContext as Context } from "../context.js";
-import { CANCEL_DATA } from "../filters/is-cancel.js";
 
 /**
  * Базовые операции над «экраном» визарда — одним сообщением бота, которое
@@ -62,10 +61,3 @@ export async function skipUnexpected(ctx: Context): Promise<void> {
   if (ctx.message) await tryDelete(ctx);
   else await answerStaleCallback(ctx);
 }
-
-// --- клавиатуры, общие для всех шагов ----------------------------------------
-
-export const cancelOnlyKeyboard = () => new InlineKeyboard().text("✖ Отмена", CANCEL_DATA);
-
-export const skipOrCancelKeyboard = () =>
-  new InlineKeyboard().text("Пропустить", "step:skip").row().text("✖ Отмена", CANCEL_DATA);

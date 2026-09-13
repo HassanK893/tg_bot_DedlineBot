@@ -1,51 +1,19 @@
 import { InlineKeyboard } from "grammy";
 import type { DatePart } from "../../types/event.js";
 import { dateSortKey, daysInMonth } from "../../utils/datePart.js";
+import { MENU } from "../callback-data/menu.js";
+import { CAL_NOOP, CUSTOM_DONE, SCHEDULE, calDayData, calNavData } from "../callback-data/wizard.js";
+import { WEEKDAYS, monthTitle } from "../helpers/date-format.js";
 
-const MONTHS = [
-  "Январь",
-  "Февраль",
-  "Март",
-  "Апрель",
-  "Май",
-  "Июнь",
-  "Июль",
-  "Август",
-  "Сентябрь",
-  "Октябрь",
-  "Ноябрь",
-  "Декабрь",
-];
-
-/** 0=Пн..6=Вс — тот же порядок, что в IntervalSchedule.weekday. Единственный источник подписей. */
-export const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-
-/** Родительный падеж — для дат вида «15 августа 2026», не для заголовка. */
-const MONTHS_GENITIVE = [
-  "января",
-  "февраля",
-  "марта",
-  "апреля",
-  "мая",
-  "июня",
-  "июля",
-  "августа",
-  "сентября",
-  "октября",
-  "ноября",
-  "декабря",
-];
+/**
+ * Календари — три клавиатуры поверх одной сетки дней (appendDayGrid).
+ * Остальные пикеры визарда лежат рядом: выбор месяца — keyboards/year-month.ts,
+ * время — keyboards/time-picker.ts, числа и дни недели —
+ * keyboards/number-picker.ts.
+ */
 
 /** Telegram не принимает кнопку с пустой подписью — для пустых клеток нужен символ. */
 const EMPTY_CELL = "·";
-
-export function monthTitle(year: number, month: number): string {
-  return `${MONTHS[month] ?? "?"} ${year}`;
-}
-
-export function formatDate(d: DatePart): string {
-  return `${d.day} ${MONTHS_GENITIVE[d.month] ?? "?"} ${d.year}`;
-}
 
 function shiftMonth(year: number, month: number, delta: number) {
   const d = new Date(Date.UTC(year, month + delta, 1));
@@ -82,6 +50,27 @@ function mergeMinToday(range: CalendarRange | undefined, today?: CalendarDate): 
 }
 
 /**
+ * Строка заголовка: «‹ Месяц Год ›». prevBlocked — левая стрелка неактивна
+ * (🚫), когда листать назад уже некуда.
+ */
+function appendMonthHeader(kb: InlineKeyboard, year: number, month: number, prevBlocked: boolean) {
+  const prev = shiftMonth(year, month, -1);
+  const next = shiftMonth(year, month, 1);
+
+  if (prevBlocked) {
+    kb.text("🚫", CAL_NOOP);
+  } else {
+    kb.text("‹", calNavData(prev.year, prev.month));
+  }
+  kb.text(monthTitle(year, month), CAL_NOOP).text("›", calNavData(next.year, next.month)).row();
+}
+
+/** Заголовок без стрелок — месяц зафиксирован, листать нельзя. */
+function appendFixedMonthHeader(kb: InlineKeyboard, year: number, month: number) {
+  kb.text(monthTitle(year, month), CAL_NOOP).row();
+}
+
+/**
  * Сетка чисел месяца (без заголовка) — общая часть для обычного календаря и
  * для календаря, зафиксированного на одном месяце.
  * callback_data:
@@ -98,7 +87,7 @@ function appendDayGrid(
   range?: CalendarRange,
   marked?: CalendarDate[],
 ) {
-  for (const name of WEEKDAYS) kb.text(name, "cal:noop");
+  for (const name of WEEKDAYS) kb.text(name, CAL_NOOP);
   kb.row();
 
   // getUTCDay(): 0 — воскресенье, поэтому сдвигаем к понедельнику
@@ -107,22 +96,22 @@ function appendDayGrid(
 
   let cell = 0;
   for (let i = 0; i < firstWeekday; i++) {
-    kb.text(EMPTY_CELL, "cal:noop");
+    kb.text(EMPTY_CELL, CAL_NOOP);
     cell++;
   }
   for (let day = 1; day <= dayCount; day++) {
     if (isMarked(year, month, day, marked)) {
-      kb.text(`✓${day}`, "cal:noop");
+      kb.text(`✓${day}`, CAL_NOOP);
     } else if (isWithinRange(year, month, day, range)) {
-      kb.text(String(day), `cal:day:${year}:${month}:${day}`);
+      kb.text(String(day), calDayData(year, month, day));
     } else {
-      kb.text(EMPTY_CELL, "cal:noop");
+      kb.text(EMPTY_CELL, CAL_NOOP);
     }
     cell++;
     if (cell % 7 === 0) kb.row();
   }
   while (cell % 7 !== 0) {
-    kb.text(EMPTY_CELL, "cal:noop");
+    kb.text(EMPTY_CELL, CAL_NOOP);
     cell++;
   }
   kb.row();
@@ -149,21 +138,14 @@ export function buildCalendar(
   const kb = new InlineKeyboard();
 
   const prev = shiftMonth(year, month, -1);
-  const next = shiftMonth(year, month, 1);
-
   const prevBlocked =
     today !== undefined &&
     (prev.year < today.year || (prev.year === today.year && prev.month < today.month));
-  if (prevBlocked) {
-    kb.text("🚫", "cal:noop");
-  } else {
-    kb.text("‹", `cal:nav:${prev.year}:${prev.month}`);
-  }
-  kb.text(monthTitle(year, month), "cal:noop").text("›", `cal:nav:${next.year}:${next.month}`).row();
+  appendMonthHeader(kb, year, month, prevBlocked);
 
   appendDayGrid(kb, year, month, mergeMinToday(range, today));
 
-  kb.text("← В меню", "menu:main");
+  kb.text("← В меню", MENU.main);
   return kb;
 }
 
@@ -179,11 +161,11 @@ export function buildFixedMonthCalendar(
 ): InlineKeyboard {
   const kb = new InlineKeyboard();
 
-  kb.text(monthTitle(year, month), "cal:noop").row();
+  appendFixedMonthHeader(kb, year, month);
 
   appendDayGrid(kb, year, month, range);
 
-  kb.text("← В меню", "menu:main");
+  kb.text("← В меню", MENU.main);
   return kb;
 }
 
@@ -211,126 +193,15 @@ export function buildCustomDatePicker(
   const kb = new InlineKeyboard();
 
   if (options.fixed) {
-    kb.text(monthTitle(year, month), "cal:noop").row();
+    appendFixedMonthHeader(kb, year, month);
   } else {
-    const prev = shiftMonth(year, month, -1);
-    const next = shiftMonth(year, month, 1);
-    kb.text("‹", `cal:nav:${prev.year}:${prev.month}`)
-      .text(monthTitle(year, month), "cal:noop")
-      .text("›", `cal:nav:${next.year}:${next.month}`)
-      .row();
+    appendMonthHeader(kb, year, month, false);
   }
 
   appendDayGrid(kb, year, month, options.range, options.marked);
 
-  if (options.canFinish) kb.text("✅ Готово", "custom:done").row();
-  kb.text("↩ Сменить режим", "sched:back").row();
-  kb.text("← В меню", "menu:main");
-  return kb;
-}
-
-const TIME_SLOTS: string[] = Array.from({ length: 48 }, (_, i) => {
-  const hours = Math.floor(i / 2);
-  const minutes = i % 2 === 0 ? "00" : "30";
-  return `${String(hours).padStart(2, "0")}:${minutes}`;
-});
-
-/**
- * Сетка времени с шагом 30 минут (00:00–23:30) плюс кнопка свободного ввода
- * для времени, которого нет в сетке. На одну дату можно выбрать несколько
- * времён — уже выбранные (marked) показываются галочкой и становятся
- * некликабельными, чтобы не добавить одно и то же дважды.
- * callback_data:
- *   time:pick:<HH:MM> — выбор слота
- *   time:manual — переход к вводу времени текстом
- *   time:noop — неактивная (уже выбранная) клетка
- *   times:done — закончить выбор времени для текущей даты
- */
-export function buildTimePicker(marked?: string[], canFinish?: boolean): InlineKeyboard {
-  const kb = new InlineKeyboard();
-
-  TIME_SLOTS.forEach((slot, i) => {
-    if (marked?.includes(slot)) {
-      kb.text(`✓${slot}`, "time:noop");
-    } else {
-      kb.text(slot, `time:pick:${slot}`);
-    }
-    if (i % 4 === 3) kb.row();
-  });
-
-  kb.text("✍️ Ввести своё время", "time:manual").row();
-  if (canFinish) kb.text("✅ Готово", "times:done").row();
-  kb.text("← В меню", "menu:main");
-  return kb;
-}
-
-/**
- * Простая сетка чисел min..max — используется для «раз в N часов/дней» в
- * интервальном режиме напоминаний.
- * callback_data: int:num:<n>
- */
-export function buildNumberPicker(min: number, max: number): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  let cell = 0;
-  for (let n = min; n <= max; n++) {
-    kb.text(String(n), `int:num:${n}`);
-    cell++;
-    if (cell % 6 === 0) kb.row();
-  }
-  if (cell % 6 !== 0) kb.row();
-  kb.text("← В меню", "menu:main");
-  return kb;
-}
-
-/**
- * Выбор дня недели — используется в интервальном режиме напоминаний для
- * unit="weeks" («раз в N недель, по такому-то дню»).
- * callback_data: wd:pick:<0..6> — 0=Пн..6=Вс.
- */
-export function buildWeekdayPicker(): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  WEEKDAYS.forEach((name, i) => kb.text(name, `wd:pick:${i}`));
-  kb.row().text("← В меню", "menu:main");
-  return kb;
-}
-
-/**
- * Выбор месяца: год сверху с навигацией стрелками, под ним сетка из 12
- * месяцев этого года. Используется, когда сначала нужно закрепить месяц, а
- * дни внутри него выбираются отдельным шагом (см. buildFixedMonthCalendar).
- * callback_data:
- *   ym:nav:<year> — переключение года
- *   ym:pick:<year>:<month> — выбор месяца
- *   ym:noop — неактивная клетка
- *
- * today, если передан, запрещает уйти в прошлое: стрелка «‹» становится
- * неактивной, когда левее уже некуда (текущий год), а месяцы раньше
- * текущего в текущем году показываются прочерком вместо названия.
- */
-export function buildYearMonthPicker(
-  year: number,
-  today?: { year: number; month: number },
-): InlineKeyboard {
-  const kb = new InlineKeyboard();
-
-  const canGoBack = !today || year - 1 >= today.year;
-  if (canGoBack) {
-    kb.text("‹", `ym:nav:${year - 1}`);
-  } else {
-    kb.text("🚫", "ym:noop");
-  }
-  kb.text(String(year), "ym:noop").text("›", `ym:nav:${year + 1}`).row();
-
-  MONTHS.forEach((name, month) => {
-    const isPast = today && (year < today.year || (year === today.year && month < today.month));
-    if (isPast) {
-      kb.text("—", "ym:noop");
-    } else {
-      kb.text(name, `ym:pick:${year}:${month}`);
-    }
-    if (month % 3 === 2) kb.row();
-  });
-
-  kb.text("← В меню", "menu:main");
+  if (options.canFinish) kb.text("✅ Готово", CUSTOM_DONE).row();
+  kb.text("↩ Сменить режим", SCHEDULE.back).row();
+  kb.text("← В меню", MENU.main);
   return kb;
 }

@@ -1,12 +1,8 @@
 import { Composer } from "grammy";
 import type { Context } from "../context.js";
 import { MENU } from "../callback-data/menu.js";
-import {
-  mainMenuKeyboard,
-  mainMenuText,
-  markMainMenuMessage,
-  staleOldMainMenu,
-} from "../keyboards/main-menu.js";
+import { markMainMenuMessage, staleOldMainMenu } from "../helpers/main-menu-tracker.js";
+import { mainMenuKeyboard, mainMenuText } from "../keyboards/main-menu.js";
 import * as userService from "../../modules/user/user.service.js";
 
 const composer = new Composer<Context>();
